@@ -1,0 +1,17 @@
+# ============================================================
+# 智能记账 / 房东收租管理系统 - Cloudflare Python Workers 配置
+# ============================================================
+
+name = "jizhang-system"
+main = "index.py"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["python_workers"]
+account_id = "ef3d5ed4216ab2dd7c64dd679ce0b2cd"
+
+[vars]
+CF_PAGES = "1"
+WORKER_RUNTIME = "cloudflare"
+DISABLE_CAPTCHA = "1"
+
+# ⚠️ 以下密钥请在 Cloudflare Dashboard Variables 里设置（不要写进仓库）：
+# JWT_SECRET / DATABASE_URL / DB_ADAPTER / ADMIN_PASSWORD

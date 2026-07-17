@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jizhang-system"
+version = "1.0.0"
+description = "智能记账 / 房东收租管理系统"
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "flask>=3.0.0,<4.0.0",
+    "flask-cors>=4.0.0,<5.0.0",
+    "werkzeug>=3.0.1",
+    "asgiref>=3.7.2",
+    "PyJWT>=2.8.0,<3.0.0",
+    "python-dotenv>=1.0.0,<2.0.0",
+    "openpyxl>=3.1.2,<4.0.0",
+    "pg8000>=1.30.4",
+]
+
+[tool.setuptools]
+packages = ["backend", "backend.db", "backend.services", "backend.routes", "backend.utils", "backend.data"]
+py-modules = ["index"]

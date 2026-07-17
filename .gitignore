@@ -1,0 +1,145 @@
+# ============================================================
+#  智能记账 / 房东收租管理系统 —— .gitignore (开源安全必备)
+#  请保留此文件，不要删除；避免密钥 / 用户数据 / 缓存泄露
+# ============================================================
+
+# ----- 环境变量 & 密钥（绝对不能提交到公开仓库） -----
+.env
+.env.*
+!.env.example
+# 子目录下（如 backend/.env）的匹配规则，防止密钥泄露
+**/.env
+**/.env.*
+!**/.env.example
+
+# ----- 数据库文件（所有用户账号 / 密码哈希 / 账单数据） -----
+backend/data/*.db
+backend/data/*.sqlite*
+backend/data/app.db-wal
+backend/data/app.db-shm
+
+# ----- 运行日志（包含用户 IP / UA / 操作记录） -----
+backend/logs/
+frontend/frontend_server.log
+backend/_*.log
+backend/_stderr*
+backend/_stdout*
+frontend/_*.log
+frontend/_stderr*
+frontend/_stdout*
+frontend/_node*.log
+logs/
+*.log
+
+# ----- Python 缓存 / bytecode -----
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+backend/__pycache__/
+backend/data/__pycache__/
+backend/db/__pycache__/
+backend/routes/__pycache__/
+backend/services/__pycache__/
+backend/utils/__pycache__/
+
+# ----- Python 虚拟环境 -----
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ----- Python 构建产物 -----
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ----- 前端依赖 / 构建缓存 -----
+node_modules/
+frontend/node_modules/
+.cache/
+.parcel-cache/
+.vite/
+dist/
+frontend/dist/
+
+# ----- IDE / 编辑器 -----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# ----- 操作系统垃圾文件 -----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ----- 临时修复脚本（本机调试用，不进仓库） -----
+/fix_*.py
+/restore*.py
+/full_restore.py
+/task4_runner.js
+/task4_results.json
+/package-lock.json
+/package.json
+
+# ----- 本机调试辅助脚本（开发者工具，非项目核心） -----
+/backend/inspect_db.py
+/test_admin_feats.py
+/frontend/_server*.js
+/frontend/server*.js
+/_server*.js
+
+# ----- 进程 PID 文件 / 本机临时脚本 -----
+*.pid
+backend/_*.pid
+frontend/_*.pid
+backend/_fixdb.py
+backend/_gentoken.py
+backend/_start_flask.bat
+backend/_start_*.bat
+frontend/_start_*.bat
+
+# ----- IDE 自动生成的脑暴 / 规划 / 临时素材目录（本机私有人工智能记忆） -----
+/.superpowers/
+/docs/superpowers/
+
+# ----- 文档生成脚本 / 二进制文档（减少仓库体积，保留纯文本即可） -----
+/docs/_generate_docx.py
+/docs/_generate_*.py
+*.doc
+*.docx
+*.pdf
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# ----- 上传/临时输出目录（空目录占位或运行期产物） -----
+/.uploads/
+/uploads/
+/.exports/
+/exports/
+
+# ----- 测试脚本（可选，如保留可注释掉本行） -----
+
+# ----- 临时截图（可选，如要开源展示文档可移到 docs 下并移除本条） -----
+/screenshots/

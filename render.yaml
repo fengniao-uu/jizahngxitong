@@ -1,0 +1,44 @@
+# ============================================================
+# 智能记账 / 房东收租管理系统 - Render 一键部署配置
+# 用法：把这个文件上传到 GitHub 仓库根目录后，
+#       在 Render 里点「Blueprint」选中你的仓库，一键导入完成部署！
+# 数据库策略：
+#   • 本地开发 → 自动用 backend/data/app.db（SQLite，零配置）
+#   • Render 部署 → 同时创建一个「Render PostgreSQL 免费数据库」，
+#     Render 会自动注入 DATABASE_URL 环境变量，代码自动切换成 PostgreSQL
+#     这样就算 Web 实例休眠/重启，所有用户账单数据都永久保存在独立数据库里，不会丢！
+# ============================================================
+
+services:
+  - type: web
+    name: smart-accounting
+    env: python
+    region: singapore  # 推荐亚洲用户选新加坡，延迟低
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r backend/requirements.txt
+    startCommand: cd backend && gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
+
+    healthCheckPath: /api/health
+    autoDeploy: yes
+    branch: main
+
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: '*'
+      - key: DISABLE_DEMO_USER
+        value: '1'
+      - key: DISABLE_DEFAULT_ADMIN
+        value: '0'
+      - key: ADMIN_PASSWORD
+        value: please_change_this_admin_password_after_first_login
+      - key: ENFORCE_CHANGE_DEFAULT_ADMIN_PWD
+        value: '1'
+
+databases:
+  - name: smart-accounting-db
+    databaseName: smart_accounting
+    user: smart_accounting
+    plan: free
+    region: singapore
