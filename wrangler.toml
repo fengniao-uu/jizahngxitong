@@ -13,8 +13,7 @@ CF_PAGES = "1"
 WORKER_RUNTIME = "cloudflare"
 DISABLE_CAPTCHA = "1"
 
-[python]
-requirements = "requirements-cloudflare.txt"
+# 依赖通过 pyproject.toml 配置，部署用 pywrangler
 
 # ⚠️ 以下密钥请在 Cloudflare Dashboard Variables 里设置（不要写进仓库）：
 # JWT_SECRET / DATABASE_URL / DB_ADAPTER / ADMIN_PASSWORD

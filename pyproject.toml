@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "jizhang-system"
 version = "1.0.0"
 description = "智能记账 / 房东收租管理系统"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
     "flask>=3.0.0,<4.0.0",
