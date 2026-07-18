@@ -165,7 +165,8 @@ from workers import WorkerEntrypoint, Response
 
 class Default(WorkerEntrypoint):
     async def fetch(self, request, env=None, ctx=None):
-        result = await _handle_request(request, env=env)
+        actual_env = getattr(self, "env", env)
+        result = await _handle_request(request, env=actual_env)
         headers_dict = {}
         for k, v in (result.get("headers") or {}).items():
             headers_dict[str(k)] = str(v)
