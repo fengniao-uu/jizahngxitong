@@ -83,8 +83,8 @@ REM 延迟 2 秒后打开浏览器，避免服务还没起来
 start "" "http://127.0.0.1:5000"
 
 REM 进入后端目录启动 Flask（保持窗口，方便看日志）
-cd /d "%~dp0backend"
-"%VENV_PY%" app.py
+cd /d "%~dp0"
+"%VENV_PY%" index.py
 
 endlocal
 pause

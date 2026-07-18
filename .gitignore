@@ -114,6 +114,11 @@ backend/_start_flask.bat
 backend/_start_*.bat
 frontend/_start_*.bat
 
+# ----- wrangler / uv 构建缓存 -----
+.wrangler/
+uv.lock
+uv.toml
+
 # ----- IDE 自动生成的脑暴 / 规划 / 临时素材目录（本机私有人工智能记忆） -----
 /.superpowers/
 /docs/superpowers/
