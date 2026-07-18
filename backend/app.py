@@ -17,7 +17,18 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 from init_db import ensure_db_initialized
 
-ensure_db_initialized()
+_db_initialized = False
+
+def ensure_db_lazy():
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            ensure_db_initialized()
+            _db_initialized = True
+        except Exception as e:
+            import logging
+            logging.getLogger("app").error(f"Database init failed: {e}")
+            raise
 
 app = Flask(__name__, static_folder=None)
 app.config["JWT_SECRET"] = JWT_SECRET
@@ -103,14 +114,30 @@ except Exception:
     pass
 
 
+@app.before_request
+def _before_request():
+    if request.path.startswith("/api/"):
+        ensure_db_lazy()
+
+
 @app.get("/api/system/health")
 def system_health():
+    try:
+        ensure_db_lazy()
+        from db import get_adapter
+        adapter = get_adapter()
+        db_ok = True
+    except Exception as e:
+        db_ok = False
+        db_error = str(e)[:100]
+    
     return jsonify(
         {
             "code": 0,
             "msg": "ok",
             "data": {
-                "db_exists": Path(config.DB_PATH).exists(),
+                "db_exists": db_ok,
+                "db_error": "" if db_ok else db_error,
                 "version": APP_VERSION,
                 "db_adapter": config.DB_ADAPTER,
                 "time": datetime.now().isoformat(timespec="seconds"),
