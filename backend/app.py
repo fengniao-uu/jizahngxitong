@@ -7,19 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory, send_file
-
-def _setup_cors(app):
-    @app.after_request
-    def add_cors_headers(response):
-        response.headers['Access-Control-Allow-Origin'] = '*'
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        return response
-    
-    @app.route('/api/', defaults={'path': ''}, methods=['OPTIONS'])
-    @app.route('/api/<path:path>', methods=['OPTIONS'])
-    def handle_options(path):
-        return '', 204
+from flask_cors import CORS
 
 import config  # noqa: E402  需要在 system_health 之前可用
 from config import CORS_ORIGINS, JWT_SECRET, APP_VERSION, LOG_DIR
@@ -47,7 +35,10 @@ app.config["JWT_SECRET"] = JWT_SECRET
 app.config["JSON_AS_ASCII"] = False
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32MB
 
-_setup_cors(app)
+if CORS_ORIGINS and CORS_ORIGINS != ["*"]:
+    CORS(app, resources={r"/api/*": {"origins": CORS_ORIGINS}}, supports_credentials=True)
+else:
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 IS_CF = any(
     k in os.environ for k in ("CF_PAGES", "CF_WORKER", "CLOUDFLARE_WORKER", "CF_PAGES_COMMIT_SHA")

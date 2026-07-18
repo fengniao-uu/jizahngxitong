@@ -3,12 +3,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import csv
 import datetime as dt
 
-try:
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font
-    _OPENPYXL_AVAILABLE = True
-except ImportError:
-    _OPENPYXL_AVAILABLE = False
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font
 
 import config
 from db import get_adapter
@@ -63,8 +59,6 @@ class IOService:
             fname = f"transactions_{_today_str()}.csv"
             mime = "text/csv; charset=utf-8-sig"
             return buf, fname, mime
-        if not _OPENPYXL_AVAILABLE:
-            raise RuntimeError("openpyxl 未安装，无法导出 Excel 文件")
         buf = BytesIO()
         wb = Workbook()
         ws = wb.active
@@ -108,8 +102,6 @@ class IOService:
             fname = f"reminders_{_today_str()}.csv"
             mime = "text/csv; charset=utf-8-sig"
             return buf, fname, mime
-        if not _OPENPYXL_AVAILABLE:
-            raise RuntimeError("openpyxl 未安装，无法导出 Excel 文件")
         buf = BytesIO()
         wb = Workbook()
         ws = wb.active
@@ -138,8 +130,6 @@ class IOService:
             text = file_bytes.decode("utf-8-sig", errors="ignore")
             reader = csv.reader(StringIO(text))
             return [list(x) for x in reader]
-        if not _OPENPYXL_AVAILABLE:
-            raise RuntimeError("openpyxl 未安装，无法读取 Excel 文件")
         from openpyxl import load_workbook
         wb = load_workbook(filename=BytesIO(file_bytes), data_only=True, read_only=True)
         ws = wb.active
