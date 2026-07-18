@@ -17,11 +17,24 @@ def _init_d1_from_env(env):
     if _d1_initialized:
         return
     try:
-        db_binding = getattr(env, "DB", None)
+        db_binding = None
+        if env is not None:
+            if hasattr(env, "DB"):
+                db_binding = getattr(env, "DB", None)
+            elif hasattr(env, "__getitem__"):
+                try:
+                    db_binding = env["DB"]
+                except:
+                    pass
+            elif callable(getattr(env, "get", None)):
+                db_binding = env.get("DB", None)
         if db_binding is not None:
             from db.d1_adapter import set_d1_db
             set_d1_db(db_binding)
             _d1_initialized = True
+            print("[d1 init] D1 database initialized successfully", file=sys.stderr)
+        else:
+            print("[d1 init] DB binding not found in env", file=sys.stderr)
     except Exception as e:
         print(f"[d1 init error] {e}", file=sys.stderr)
 
