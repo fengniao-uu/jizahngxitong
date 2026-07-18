@@ -1,4 +1,4 @@
-name = "jizhang-system"
+name = "jizahngxitong"
 main = "index.py"
 compatibility_date = "2025-07-01"
 compatibility_flags = ["python_workers"]
