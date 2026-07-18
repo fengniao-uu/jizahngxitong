@@ -1,27 +1,20 @@
 import json
 
-try:
-    from workers import WorkerEntrypoint, Response
-    
-    class JizhangWorker(WorkerEntrypoint):
-        async def fetch(self, request):
-            url = str(request.url)
-            path = url.split("?")[0]
-            
-            if path.endswith("/health"):
-                body = json.dumps({"status": "ok", "path": path}, ensure_ascii=False)
-                return Response(body, status=200, headers={"Content-Type": "application/json"})
-            
-            body = json.dumps({"error": "Not found", "path": path}, ensure_ascii=False)
-            return Response(body, status=404, headers={"Content-Type": "application/json"})
+from workers import WorkerEntrypoint, Response
 
-except ImportError as e:
-    print(f"workers import failed: {e}", file=sys.stderr)
-    JizhangWorker = None
+class Default(WorkerEntrypoint):
+    async def fetch(self, request):
+        url = str(request.url)
+        path = url.split("?")[0]
+        
+        if path.endswith("/health") or path.endswith("/"):
+            body = json.dumps({"status": "ok", "path": path}, ensure_ascii=False)
+            return Response(body, status=200, headers={"Content-Type": "application/json; charset=utf-8"})
+        
+        body = json.dumps({"error": "Not found", "path": path}, ensure_ascii=False)
+        return Response(body, status=404, headers={"Content-Type": "application/json; charset=utf-8"})
 
 if __name__ == "__main__":
-    print("Local development mode")
-    import sys
     from http.server import HTTPServer, BaseHTTPRequestHandler
     
     class Handler(BaseHTTPRequestHandler):
