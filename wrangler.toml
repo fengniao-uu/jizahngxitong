@@ -1,5 +1,5 @@
 name = "jizhang-system"
-main = "index_simple.py"
+main = "index.py"
 compatibility_date = "2025-12-01"
 compatibility_flags = ["python_workers"]
 account_id = "ef3d5ed4216ab2dd7c64dd679ce0b2cd"
