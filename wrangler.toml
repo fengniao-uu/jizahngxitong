@@ -8,6 +8,7 @@ account_id = "ef3d5ed4216ab2dd7c64dd679ce0b2cd"
 CF_PAGES = "1"
 WORKER_RUNTIME = "cloudflare"
 DISABLE_CAPTCHA = "1"
+DB_ADAPTER = "postgres"
 
 [python]
 requirements = "./requirements.txt"
