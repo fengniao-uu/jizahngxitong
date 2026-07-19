@@ -603,23 +603,68 @@ function getToken(request) {
   return authHeader.substring(7);
 }
 
+function bytesToBase64(bytes) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let result = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b1 = bytes[i];
+    const b2 = bytes[i + 1] || 0;
+    const b3 = bytes[i + 2] || 0;
+    result += chars[b1 >> 2];
+    result += chars[((b1 & 3) << 4) | (b2 >> 4)];
+    result += chars[((b2 & 15) << 2) | (b3 >> 6)];
+    result += chars[b3 & 63];
+  }
+  if (bytes.length % 3 === 1) {
+    result = result.slice(0, -2) + '==';
+  } else if (bytes.length % 3 === 2) {
+    result = result.slice(0, -1) + '=';
+  }
+  return result.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64ToBytes(base64) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+  while (base64.length % 4 !== 0) base64 += '=';
+  const bytes = [];
+  for (let i = 0; i < base64.length; i += 4) {
+    const c1 = chars.indexOf(base64[i]);
+    const c2 = chars.indexOf(base64[i + 1]);
+    const c3 = chars.indexOf(base64[i + 2]);
+    const c4 = chars.indexOf(base64[i + 3]);
+    bytes.push((c1 << 2) | (c2 >> 4));
+    if (c3 !== -1) bytes.push(((c2 & 15) << 4) | (c3 >> 2));
+    if (c4 !== -1) bytes.push(((c3 & 3) << 6) | c4);
+  }
+  return bytes;
+}
+
 async function generateJwt(payload, env) {
   const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
-  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const payloadStr = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 }));
-  const signature = await HMACSHA256(`${header}.${payloadStr}`, secret);
-  return `${header}.${payloadStr}.${btoa(signature)}`;
+  const encoder = new TextEncoder();
+  const header = bytesToBase64(encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const payloadStr = bytesToBase64(encoder.encode(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 })));
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${header}.${payloadStr}`));
+  const signatureBase64 = bytesToBase64(new Uint8Array(signature));
+  return `${header}.${payloadStr}.${signatureBase64}`;
 }
 
 async function verifyJwt(token, env) {
   try {
     const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
+    const encoder = new TextEncoder();
     const [header, payloadStr, signature] = token.split('.');
-    const expectedSignature = await HMACSHA256(`${header}.${payloadStr}`, secret);
-    if (signature !== btoa(expectedSignature)) {
+    const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    const expectedSignature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${header}.${payloadStr}`));
+    const expectedSignatureBase64 = bytesToBase64(new Uint8Array(expectedSignature));
+    if (signature !== expectedSignatureBase64) {
       return null;
     }
-    const payload = JSON.parse(atob(payloadStr));
+    const payloadBytes = base64ToBytes(payloadStr);
+    const payloadStrDecoded = new TextDecoder().decode(new Uint8Array(payloadBytes));
+    const payload = JSON.parse(payloadStrDecoded);
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
@@ -629,42 +674,31 @@ async function verifyJwt(token, env) {
   }
 }
 
-async function HMACSHA256(message, secret) {
-  const encoder = new TextEncoder();
-  const key = encoder.encode(secret);
-  const data = encoder.encode(message);
-  const signature = await crypto.subtle.sign('HMAC', await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']), data);
-  const bytes = new Uint8Array(signature);
-  let result = '';
-  for (let i = 0; i < bytes.length; i++) {
-    result += String.fromCharCode(bytes[i]);
-  }
-  return result;
-}
-
 async function generatePasswordHash(password) {
-  const saltRounds = 10;
-  const salt = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(Math.random().toString()));
-  const saltStr = Array.from(new Uint8Array(salt)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 22);
-  const data = new TextEncoder().encode(password + saltStr);
-  let hash = await crypto.subtle.digest('SHA-256', data);
-  for (let i = 0; i < saltRounds; i++) {
-    hash = await crypto.subtle.digest('SHA-256', new Uint8Array([...new Uint8Array(hash), ...data]));
-  }
-  const hashStr = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-  return `$2b$${saltRounds}$${saltStr}${hashStr}`;
+  const iterations = 260000;
+  const saltBytes = new Uint8Array(16);
+  crypto.getRandomValues(saltBytes);
+  const salt = bytesToBase64(saltBytes);
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const hashBytes = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations, hash: 'SHA-256' }, key, 256);
+  const hash = Array.from(new Uint8Array(hashBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `pbkdf2:sha256:${iterations}$${salt}$${hash}`;
 }
 
 async function verifyPassword(password, hash) {
-  const parts = hash.split('$');
-  if (parts.length !== 4) return false;
-  const saltRounds = parseInt(parts[2]);
-  const saltStr = parts[3].substring(0, 22);
-  const data = new TextEncoder().encode(password + saltStr);
-  let computedHash = await crypto.subtle.digest('SHA-256', data);
-  for (let i = 0; i < saltRounds; i++) {
-    computedHash = await crypto.subtle.digest('SHA-256', new Uint8Array([...new Uint8Array(computedHash), ...data]));
+  if (!hash.startsWith('pbkdf2:sha256:')) {
+    return false;
   }
-  const computedHashStr = Array.from(new Uint8Array(computedHash)).map(b => b.toString(16).padStart(2, '0')).join('');
-  return hash === `$2b$${saltRounds}$${saltStr}${computedHashStr}`;
+  const parts = hash.split('$');
+  if (parts.length !== 3) return false;
+  const header = parts[0];
+  const iterations = parseInt(header.split(':')[2]);
+  const salt = parts[1];
+  const storedHash = parts[2];
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const hashBytes = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations, hash: 'SHA-256' }, key, 256);
+  const computedHash = Array.from(new Uint8Array(hashBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return computedHash === storedHash;
 }
