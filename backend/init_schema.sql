@@ -1,0 +1,65 @@
+CREATE TABLE IF NOT EXISTS users (
+    id BIGSERIAL PRIMARY KEY,
+    account_no CHAR(6) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TIMESTAMP,
+    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    last_failed_at TIMESTAMP,
+    locked_until TIMESTAMP,
+    nickname VARCHAR(32) NOT NULL DEFAULT '',
+    phone VARCHAR(20) NOT NULL DEFAULT '',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    role INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS categories (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type CHAR(4) NOT NULL CHECK(type IN ('收入','支出')),
+    name VARCHAR(20) NOT NULL,
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    sort INTEGER NOT NULL DEFAULT 0,
+    disabled BOOLEAN NOT NULL DEFAULT FALSE,
+    UNIQUE(user_id, type, name)
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type CHAR(4) NOT NULL CHECK(type IN ('收入','支出')),
+    category VARCHAR(20) NOT NULL,
+    amount DECIMAL(12,2) NOT NULL CHECK(amount > 0),
+    description VARCHAR(200) NOT NULL DEFAULT '',
+    room_no VARCHAR(20) NOT NULL DEFAULT '',
+    trans_date DATE NOT NULL,
+    tag VARCHAR(50) NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS reminders (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    room_no VARCHAR(20) NOT NULL,
+    rent_amount DECIMAL(12,2) NOT NULL CHECK(rent_amount >= 0),
+    due_date DATE NOT NULL,
+    lease_end_date DATE,
+    status VARCHAR(10) NOT NULL DEFAULT '未完成' CHECK(status IN ('未完成','已完成','已确认')),
+    remark VARCHAR(200) NOT NULL DEFAULT '',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS captchas (
+    id BIGSERIAL PRIMARY KEY,
+    captcha_id VARCHAR(64) NOT NULL UNIQUE,
+    code VARCHAR(8) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL
+);
+
+INSERT INTO users(account_no, password_hash, role, nickname, is_active) VALUES('100000', '$2b$10$EixZaYbB.rK4fl8x2q7Meu6Q6D2V5fF5Q5Q5Q5Q5Q5Q5Q5Q5Q', 1, '超级管理员', TRUE) ON CONFLICT (account_no) DO NOTHING;
