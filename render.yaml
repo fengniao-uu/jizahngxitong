@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: jizhang-system
+    name: jizhang-api
     env: python
     plan: starter
     buildCommand: pip install -r backend/requirements.txt
-    startCommand: gunicorn index:app
+    startCommand: gunicorn backend.app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0
@@ -16,3 +16,16 @@ services:
         generateValue: true
       - key: ADMIN_PASSWORD
         value: admin123
+      - key: CORS_ORIGINS
+        value: "*"
+
+static_sites:
+  - type: static_site
+    name: jizhang-frontend
+    buildCommand: ""
+    publishDir: frontend
+    envVars:
+      - key: API_BASE_URL
+        fromService:
+          name: jizhang-api
+          type: web

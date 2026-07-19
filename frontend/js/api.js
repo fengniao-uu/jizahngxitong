@@ -1,4 +1,16 @@
-const API_BASE = "";
+const _getApiBase = () => {
+  if (window.API_BASE_URL && String(window.API_BASE_URL).trim()) {
+    return String(window.API_BASE_URL).trim();
+  }
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const apiParam = urlParams.get("apiBase");
+    if (apiParam && apiParam.trim()) return apiParam.trim();
+  } catch (_) {}
+  return "";
+};
+
+const API_BASE = _getApiBase();
 const _FALLBACK_BACKEND_BASE = "http://127.0.0.1:5000";
 
 function _joinUrl(base, path) {
