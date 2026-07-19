@@ -11,7 +11,7 @@ export async function onRequest(context) {
     return await handleApiRequest(request, env, path);
   } catch (error) {
     console.error('API Error:', error);
-    return new Response(JSON.stringify({ code: 500, msg: '服务器错误' }), {
+    return new Response(JSON.stringify({ code: 500, msg: '服务器错误: ' + error.message }), {
       headers: { 'Content-Type': 'application/json; charset=utf-8' }
     });
   }
@@ -232,10 +232,12 @@ async function handleDashboardSummary(request, env, decoded) {
 }
 
 async function handleDashboardRecent(request, env, decoded) {
-  const limit = parseInt(new URL(request.url).searchParams.get('limit') || '5');
-  const recent = await env.DB.prepare('SELECT id, type, category, amount, description, room_no, trans_date, created_at FROM transactions WHERE user_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?').bind(decoded.id, limit).all();
+  const url = new URL(request.url);
+  const limit = parseInt(url.searchParams.get('limit') || '5');
   
-  return jsonResponse(0, 'ok', recent.results || []);
+  const results = await env.DB.prepare('SELECT id, type, category, amount, description, trans_date, created_at FROM transactions WHERE user_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?').bind(decoded.id, limit).all();
+  
+  return jsonResponse(0, 'ok', results.results || []);
 }
 
 async function handleTransactionsList(request, env, decoded) {
@@ -244,34 +246,45 @@ async function handleTransactionsList(request, env, decoded) {
   const page_size = parseInt(url.searchParams.get('page_size') || '20');
   const offset = (page - 1) * page_size;
   const type = url.searchParams.get('type');
+  const keyword = url.searchParams.get('keyword');
+  const start_date = url.searchParams.get('start_date');
+  const end_date = url.searchParams.get('end_date');
   
-  let query, params;
+  let sql = 'SELECT id, type, category, amount, description, room_no, trans_date, tag, created_at, updated_at FROM transactions WHERE user_id = ? AND deleted = 0';
+  const params = [decoded.id];
+  
   if (type) {
-    query = 'SELECT id, type, category, amount, description, room_no, trans_date, tag, created_at, updated_at FROM transactions WHERE user_id = ? AND type = ? AND deleted = 0 ORDER BY trans_date DESC, id DESC LIMIT ? OFFSET ?';
-    params = [decoded.id, type, page_size, offset];
-  } else {
-    query = 'SELECT id, type, category, amount, description, room_no, trans_date, tag, created_at, updated_at FROM transactions WHERE user_id = ? AND deleted = 0 ORDER BY trans_date DESC, id DESC LIMIT ? OFFSET ?';
-    params = [decoded.id, page_size, offset];
+    sql += ' AND type = ?';
+    params.push(type);
+  }
+  if (keyword) {
+    sql += ' AND (description LIKE ? OR room_no LIKE ? OR tag LIKE ?)';
+    params.push('%' + keyword + '%', '%' + keyword + '%', '%' + keyword + '%');
+  }
+  if (start_date) {
+    sql += ' AND trans_date >= ?';
+    params.push(start_date);
+  }
+  if (end_date) {
+    sql += ' AND trans_date <= ?';
+    params.push(end_date);
   }
   
-  const results = await env.DB.prepare(query).bind(...params).all();
+  sql += ' ORDER BY trans_date DESC, created_at DESC LIMIT ? OFFSET ?';
+  params.push(page_size, offset);
   
-  const countQuery = type ? 'SELECT COUNT(*) as cnt FROM transactions WHERE user_id = ? AND type = ? AND deleted = 0' : 'SELECT COUNT(*) as cnt FROM transactions WHERE user_id = ? AND deleted = 0';
-  const countParams = type ? [decoded.id, type] : [decoded.id];
-  const countResult = await env.DB.prepare(countQuery).bind(...countParams).first();
+  const results = await env.DB.prepare(sql).bind(...params).all();
   
-  return jsonResponse(0, 'ok', { list: results.results || [], total: parseInt(countResult.cnt || 0), page, page_size });
+  const countSql = 'SELECT COUNT(*) as cnt FROM transactions WHERE user_id = ? AND deleted = 0';
+  const countResults = await env.DB.prepare(countSql).bind(decoded.id).first();
+  
+  return jsonResponse(0, 'ok', { list: results.results || [], total: parseInt(countResults.cnt || 0), page, page_size });
 }
 
 async function handleTransactionsCreate(request, env, decoded) {
   const body = await request.json();
-  const { type, category, amount, description, room_no, trans_date, tag } = body;
   
-  if (!type || !category || !amount || !trans_date) {
-    return jsonResponse(400, '必填字段不能为空');
-  }
-  
-  await env.DB.prepare('INSERT INTO transactions(user_id, type, category, amount, description, room_no, trans_date, tag) VALUES(?, ?, ?, ?, ?, ?, ?, ?)').bind(decoded.id, type, category, amount, description || '', room_no || '', trans_date, tag || '').run();
+  await env.DB.prepare('INSERT INTO transactions(user_id, type, category, amount, description, room_no, trans_date, tag) VALUES(?, ?, ?, ?, ?, ?, ?, ?)').bind(decoded.id, body.type, body.category, body.amount, body.description || '', body.room_no || '', body.trans_date, body.tag || '').run();
   
   return jsonResponse(0, '添加成功');
 }
@@ -279,13 +292,8 @@ async function handleTransactionsCreate(request, env, decoded) {
 async function handleTransactionsUpdate(request, env, decoded, path) {
   const id = parseInt(path.split('/').pop());
   const body = await request.json();
-  const { type, category, amount, description, room_no, trans_date, tag } = body;
   
-  if (!type || !category || !amount || !trans_date) {
-    return jsonResponse(400, '必填字段不能为空');
-  }
-  
-  await env.DB.prepare('UPDATE transactions SET type = ?, category = ?, amount = ?, description = ?, room_no = ?, trans_date = ?, tag = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND deleted = 0').bind(type, category, amount, description || '', room_no || '', trans_date, tag || '', id, decoded.id).run();
+  await env.DB.prepare('UPDATE transactions SET type = ?, category = ?, amount = ?, description = ?, room_no = ?, trans_date = ?, tag = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?').bind(body.type, body.category, body.amount, body.description || '', body.room_no || '', body.trans_date, body.tag || '', id, decoded.id).run();
   
   return jsonResponse(0, '更新成功');
 }
@@ -299,31 +307,15 @@ async function handleTransactionsDelete(request, env, decoded, path) {
 }
 
 async function handleCategoriesList(request, env, decoded) {
-  const url = new URL(request.url);
-  const type = url.searchParams.get('type');
-  
-  let query = 'SELECT id, type, name, is_system, disabled FROM categories WHERE user_id = ? AND disabled = 0 ORDER BY sort';
-  let params = [decoded.id];
-  
-  if (type) {
-    query += ' AND type = ?';
-    params.push(type);
-  }
-  
-  const results = await env.DB.prepare(query).bind(...params).all();
+  const results = await env.DB.prepare('SELECT id, name, type, is_system, sort, disabled FROM categories WHERE user_id = ? ORDER BY sort').bind(decoded.id).all();
   
   return jsonResponse(0, 'ok', results.results || []);
 }
 
 async function handleCategoriesCreate(request, env, decoded) {
   const body = await request.json();
-  const { type, name } = body;
   
-  if (!type || !name) {
-    return jsonResponse(400, '类型和名称不能为空');
-  }
-  
-  await env.DB.prepare('INSERT INTO categories(user_id, type, name, is_system, sort) VALUES(?, ?, ?, 0, 0)').bind(decoded.id, type, name).run();
+  await env.DB.prepare('INSERT INTO categories(user_id, type, name, is_system, sort, disabled) VALUES(?, ?, ?, 0, 0, 0)').bind(decoded.id, body.type, body.name).run();
   
   return jsonResponse(0, '添加成功');
 }
@@ -332,7 +324,7 @@ async function handleCategoriesUpdate(request, env, decoded, path) {
   const id = parseInt(path.split('/').pop());
   const body = await request.json();
   
-  await env.DB.prepare('UPDATE categories SET name = ?, sort = ? WHERE id = ? AND user_id = ?').bind(body.name, body.sort || 0, id, decoded.id).run();
+  await env.DB.prepare('UPDATE categories SET name = ?, type = ?, disabled = ? WHERE id = ? AND user_id = ?').bind(body.name, body.type, body.disabled || 0, id, decoded.id).run();
   
   return jsonResponse(0, '更新成功');
 }
@@ -340,37 +332,28 @@ async function handleCategoriesUpdate(request, env, decoded, path) {
 async function handleCategoriesDelete(request, env, decoded, path) {
   const id = parseInt(path.split('/').pop());
   
-  await env.DB.prepare('UPDATE categories SET disabled = 1 WHERE id = ? AND user_id = ?').bind(id, decoded.id).run();
+  await env.DB.prepare('DELETE FROM categories WHERE id = ? AND user_id = ?').bind(id, decoded.id).run();
   
   return jsonResponse(0, '删除成功');
 }
 
 async function handleRemindersList(request, env, decoded) {
   const url = new URL(request.url);
-  const status = url.searchParams.get('status');
+  const page = parseInt(url.searchParams.get('page') || '1');
+  const page_size = parseInt(url.searchParams.get('page_size') || '20');
+  const offset = (page - 1) * page_size;
   
-  let query = 'SELECT * FROM reminders WHERE user_id = ? AND deleted = 0 ORDER BY due_date DESC';
-  let params = [decoded.id];
+  const results = await env.DB.prepare('SELECT id, room_no, rent_amount, due_date, lease_end_date, status, remark, created_at, updated_at FROM reminders WHERE user_id = ? AND deleted = 0 ORDER BY due_date ASC LIMIT ? OFFSET ?').bind(decoded.id, page_size, offset).all();
   
-  if (status) {
-    query += ' AND status = ?';
-    params.push(status);
-  }
+  const countResults = await env.DB.prepare('SELECT COUNT(*) as cnt FROM reminders WHERE user_id = ? AND deleted = 0').bind(decoded.id).first();
   
-  const results = await env.DB.prepare(query).bind(...params).all();
-  
-  return jsonResponse(0, 'ok', results.results || []);
+  return jsonResponse(0, 'ok', { list: results.results || [], total: parseInt(countResults.cnt || 0), page, page_size });
 }
 
 async function handleRemindersCreate(request, env, decoded) {
   const body = await request.json();
-  const { room_no, rent_amount, due_date, lease_end_date, remark } = body;
   
-  if (!room_no || !rent_amount || !due_date) {
-    return jsonResponse(400, '必填字段不能为空');
-  }
-  
-  await env.DB.prepare('INSERT INTO reminders(user_id, room_no, rent_amount, due_date, lease_end_date, remark) VALUES(?, ?, ?, ?, ?, ?)').bind(decoded.id, room_no, rent_amount, due_date, lease_end_date || null, remark || '').run();
+  await env.DB.prepare('INSERT INTO reminders(user_id, room_no, rent_amount, due_date, lease_end_date, status, remark) VALUES(?, ?, ?, ?, ?, ?, ?)').bind(decoded.id, body.room_no, body.rent_amount, body.due_date, body.lease_end_date || null, body.status || '未完成', body.remark || '').run();
   
   return jsonResponse(0, '添加成功');
 }
@@ -452,13 +435,8 @@ async function handleAnnouncementsCreate(request, env, decoded) {
   }
   
   const body = await request.json();
-  const { title, content, banner_level, priority, is_pinned, effective_at, expire_at } = body;
   
-  if (!title || !content) {
-    return jsonResponse(400, '标题和内容不能为空');
-  }
-  
-  await env.DB.prepare('INSERT INTO announcements(title, content, banner_level, priority, is_pinned, effective_at, expire_at, created_by, updated_by) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(title, content, banner_level || 'info', priority || 0, is_pinned || 0, effective_at || null, expire_at || null, decoded.id, decoded.id).run();
+  await env.DB.prepare('INSERT INTO announcements(title, content, banner_level, priority, is_pinned, effective_at, expire_at, created_by, updated_by) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(body.title, body.content, body.banner_level || 'info', body.priority || 0, body.is_pinned || 0, body.effective_at || null, body.expire_at || null, decoded.id, decoded.id).run();
   
   return jsonResponse(0, '添加成功');
 }
@@ -683,47 +661,11 @@ async function verifyJwt(token, env) {
   }
 }
 
-function bytesToStdBase64(bytes) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let result = '';
-  for (let i = 0; i < bytes.length; i += 3) {
-    const b1 = bytes[i];
-    const b2 = bytes[i + 1] || 0;
-    const b3 = bytes[i + 2] || 0;
-    result += chars[b1 >> 2];
-    result += chars[((b1 & 3) << 4) | (b2 >> 4)];
-    result += chars[((b2 & 15) << 2) | (b3 >> 6)];
-    result += chars[b3 & 63];
-  }
-  if (bytes.length % 3 === 1) {
-    result = result.slice(0, -2) + '==';
-  } else if (bytes.length % 3 === 2) {
-    result = result.slice(0, -1) + '=';
-  }
-  return result;
-}
-
-function stdBase64ToBytes(base64) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  while (base64.length % 4 !== 0) base64 += '=';
-  const bytes = [];
-  for (let i = 0; i < base64.length; i += 4) {
-    const c1 = chars.indexOf(base64[i]);
-    const c2 = chars.indexOf(base64[i + 1]);
-    const c3 = chars.indexOf(base64[i + 2]);
-    const c4 = chars.indexOf(base64[i + 3]);
-    bytes.push((c1 << 2) | (c2 >> 4));
-    if (c3 !== -1) bytes.push(((c2 & 15) << 4) | (c3 >> 2));
-    if (c4 !== -1) bytes.push(((c3 & 3) << 6) | c4);
-  }
-  return bytes;
-}
-
 async function generatePasswordHash(password) {
   const iterations = 260000;
   const saltBytes = new Uint8Array(16);
   crypto.getRandomValues(saltBytes);
-  const salt = bytesToStdBase64(saltBytes);
+  const salt = btoa(String.fromCharCode(...saltBytes));
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
   const hashBytes = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations, hash: 'SHA-256' }, key, 256);
