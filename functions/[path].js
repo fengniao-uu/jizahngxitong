@@ -142,6 +142,32 @@ async function ensureAdminUser(env) {
 
 async function handleApiRequest(request, env, path) {
   const method = request.method;
+  const hasDb = env && env.DB;
+  
+  if (path === '/api/auth/captcha' && method === 'GET') {
+    try {
+      const { captcha_id, code, svg } = generateCaptcha();
+      if (hasDb) {
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+        try {
+          await env.DB.prepare('INSERT INTO captchas(captcha_id, code, expires_at) VALUES(?, ?, ?)')
+            .bind(captcha_id, code, expiresAt).run();
+        } catch (dbErr) {
+          console.warn('Captcha DB insert warning:', dbErr.message);
+        }
+      }
+      return new Response(JSON.stringify({ code: 0, msg: 'ok', data: { captcha_id, image: svg, ttl: 300, length: 4 } }), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8' }
+      });
+    } catch (error) {
+      console.error('Captcha error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (!hasDb) {
+    return jsonResponse(500, '数据库未配置');
+  }
   
   try {
     await initDb(env);
@@ -156,21 +182,6 @@ async function handleApiRequest(request, env, path) {
       return jsonResponse(0, 'ok', { status: 'running' });
     } catch (e) {
       return jsonResponse(500, '数据库连接失败');
-    }
-  }
-  
-  if (path === '/api/auth/captcha' && method === 'GET') {
-    try {
-      const { captcha_id, code, svg } = generateCaptcha();
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-      await env.DB.prepare('INSERT INTO captchas(captcha_id, code, expires_at) VALUES(?, ?, ?)')
-        .bind(captcha_id, code, expiresAt).run();
-      return new Response(JSON.stringify({ code: 0, msg: 'ok', data: { captcha_id, image: svg, ttl: 300, length: 4 } }), {
-        headers: { 'Content-Type': 'application/json; charset=utf-8' }
-      });
-    } catch (error) {
-      console.error('Captcha error:', error);
-      return jsonResponse(500, '服务器内部错误');
     }
   }
   
