@@ -1,14 +1,17 @@
 {
   "version": 1,
-  "error_pages": {},
   "include": [
     {
+      "pattern": "/api/*",
+      "middleware": {
+        "cache": {
+          "bypass": true
+        }
+      }
+    },
+    {
       "pattern": "/*",
-      "serve": "/index.html",
-      "cache": true
+      "serve": "/index.html"
     }
-  ],
-  "exclude": [
-    "/api/*"
   ]
 }
