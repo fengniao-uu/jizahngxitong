@@ -37,7 +37,7 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(401, '未登录');
   }
   
-  const decoded = await verifyJwt(token, env);
+  const decoded = await verifyJwtSimple(token, env);
   if (!decoded) {
     return jsonResponse(401, '登录已过期');
   }
@@ -165,7 +165,7 @@ async function handleLogin(request, env) {
     return jsonResponse(401, '账号或密码错误');
   }
   
-  const isValid = await verifyPassword(password, user.password_hash);
+  const isValid = await verifyPasswordSimple(password, user.password_hash);
   
   if (!isValid) {
     return jsonResponse(401, '账号或密码错误');
@@ -177,7 +177,7 @@ async function handleLogin(request, env) {
   
   await env.DB.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').bind(user.id).run();
   
-  const token = await generateJwt({ id: user.id, account_no: user.account_no, role: user.role }, env);
+  const token = await generateJwtSimple({ id: user.id, account_no: user.account_no, role: user.role }, env);
   
   return jsonResponse(0, '登录成功', { token, user: { id: user.id, account_no: user.account_no, nickname: user.nickname, role: user.role, is_active: user.is_active } });
 }
@@ -202,7 +202,7 @@ async function handleRegister(request, env) {
     return jsonResponse(409, '该账号已被占用');
   }
   
-  const hash = await generatePasswordHash(password);
+  const hash = await generatePasswordHashSimple(password);
   
   await env.DB.prepare('INSERT INTO users(account_no, password_hash, nickname, role, is_active) VALUES(?, ?, ?, 0, 1)').bind(account_no, hash, nickname || '').run();
   
@@ -531,26 +531,26 @@ async function handleAdminSessionLogs(request, env, decoded) {
 async function initDb(env) {
   const db = env.DB;
   
-  await db.prepare('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, account_no CHAR(6) NOT NULL UNIQUE, password_hash VARCHAR(255) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_login_at TIMESTAMP, is_deleted BOOLEAN NOT NULL DEFAULT 0, failed_attempts INTEGER NOT NULL DEFAULT 0, last_failed_at TIMESTAMP, locked_until TIMESTAMP, nickname VARCHAR(32) NOT NULL DEFAULT "", phone VARCHAR(20) NOT NULL DEFAULT "", is_active BOOLEAN NOT NULL DEFAULT 1, role INTEGER NOT NULL DEFAULT 0)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, account_no TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, last_login_at TEXT, is_deleted INTEGER NOT NULL DEFAULT 0, failed_attempts INTEGER NOT NULL DEFAULT 0, last_failed_at TEXT, locked_until TEXT, nickname TEXT NOT NULL DEFAULT "", phone TEXT NOT NULL DEFAULT "", is_active INTEGER NOT NULL DEFAULT 1, role INTEGER NOT NULL DEFAULT 0)').run();
   
-  await db.prepare('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, type CHAR(4) NOT NULL, name VARCHAR(20) NOT NULL, is_system BOOLEAN NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0, disabled BOOLEAN NOT NULL DEFAULT 0)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, type TEXT NOT NULL, name TEXT NOT NULL, is_system INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0, disabled INTEGER NOT NULL DEFAULT 0)').run();
   
-  await db.prepare('CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, type CHAR(4) NOT NULL, category VARCHAR(20) NOT NULL, amount DECIMAL(12,2) NOT NULL, description VARCHAR(200) NOT NULL DEFAULT "", room_no VARCHAR(20) NOT NULL DEFAULT "", trans_date DATE NOT NULL, tag VARCHAR(50) NOT NULL DEFAULT "", created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, deleted BOOLEAN NOT NULL DEFAULT 0)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, type TEXT NOT NULL, category TEXT NOT NULL, amount REAL NOT NULL, description TEXT NOT NULL DEFAULT "", room_no TEXT NOT NULL DEFAULT "", trans_date TEXT NOT NULL, tag TEXT NOT NULL DEFAULT "", created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, deleted INTEGER NOT NULL DEFAULT 0)').run();
   
-  await db.prepare('CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, room_no VARCHAR(20) NOT NULL, rent_amount DECIMAL(12,2) NOT NULL, due_date DATE NOT NULL, lease_end_date DATE, status VARCHAR(10) NOT NULL DEFAULT "未完成", remark VARCHAR(200) NOT NULL DEFAULT "", created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, deleted BOOLEAN NOT NULL DEFAULT 0)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, room_no TEXT NOT NULL, rent_amount REAL NOT NULL, due_date TEXT NOT NULL, lease_end_date TEXT, status TEXT NOT NULL DEFAULT "未完成", remark TEXT NOT NULL DEFAULT "", created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, deleted INTEGER NOT NULL DEFAULT 0)').run();
   
-  await db.prepare('CREATE TABLE IF NOT EXISTS announcements (id INTEGER PRIMARY KEY AUTOINCREMENT, title VARCHAR(80) NOT NULL, content TEXT NOT NULL, banner_level VARCHAR(10) NOT NULL DEFAULT "info", priority INTEGER NOT NULL DEFAULT 0, is_pinned BOOLEAN NOT NULL DEFAULT 0, is_active BOOLEAN NOT NULL DEFAULT 1, effective_at TIMESTAMP, expire_at TIMESTAMP, created_by INTEGER, updated_by INTEGER, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_deleted BOOLEAN NOT NULL DEFAULT 0)').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS announcements (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, content TEXT NOT NULL, banner_level TEXT NOT NULL DEFAULT "info", priority INTEGER NOT NULL DEFAULT 0, is_pinned INTEGER NOT NULL DEFAULT 0, is_active INTEGER NOT NULL DEFAULT 1, effective_at TEXT, expire_at TEXT, created_by INTEGER, updated_by INTEGER, created_at TEXT DEFAULT CURRENT_TIMESTAMP, updated_at TEXT DEFAULT CURRENT_TIMESTAMP, is_deleted INTEGER NOT NULL DEFAULT 0)').run();
   
-  await db.prepare('CREATE TABLE IF NOT EXISTS session_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, login_ip VARCHAR(50), login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, status VARCHAR(20) NOT NULL DEFAULT "success")').run();
+  await db.prepare('CREATE TABLE IF NOT EXISTS session_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, login_ip TEXT, login_time TEXT DEFAULT CURRENT_TIMESTAMP, status TEXT NOT NULL DEFAULT "success")').run();
   
   await ensureAdminUser(env);
 }
 
 async function ensureAdminUser(env) {
   const db = env.DB;
-  const result = await db.prepare('SELECT id, password_hash FROM users WHERE account_no = ? AND is_deleted = 0 LIMIT 1').bind('100000').first();
+  const result = await db.prepare('SELECT id FROM users WHERE account_no = ? AND is_deleted = 0 LIMIT 1').bind('100000').first();
   
-  const pwdHash = await generatePasswordHash('123456');
+  const pwdHash = await generatePasswordHashSimple('123456');
   
   if (result) {
     await db.prepare('UPDATE users SET password_hash = ?, role = 1, nickname = "超级管理员", is_active = 1 WHERE id = ?').bind(pwdHash, result.id).run();
@@ -585,77 +585,28 @@ function getToken(request) {
   return authHeader.substring(7);
 }
 
-function stdBase64Encode(bytes) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let result = '';
-  for (let i = 0; i < bytes.length; i += 3) {
-    const b1 = bytes[i];
-    const b2 = bytes[i + 1] || 0;
-    const b3 = bytes[i + 2] || 0;
-    result += chars[b1 >> 2];
-    result += chars[((b1 & 3) << 4) | (b2 >> 4)];
-    result += chars[((b2 & 15) << 2) | (b3 >> 6)];
-    result += chars[b3 & 63];
-  }
-  if (bytes.length % 3 === 1) {
-    result = result.slice(0, -2) + '==';
-  } else if (bytes.length % 3 === 2) {
-    result = result.slice(0, -1) + '=';
-  }
-  return result;
-}
-
-function stdBase64Decode(base64) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  while (base64.length % 4 !== 0) base64 += '=';
-  const bytes = [];
-  for (let i = 0; i < base64.length; i += 4) {
-    const c1 = chars.indexOf(base64[i]);
-    const c2 = chars.indexOf(base64[i + 1]);
-    const c3 = chars.indexOf(base64[i + 2]);
-    const c4 = chars.indexOf(base64[i + 3]);
-    bytes.push((c1 << 2) | (c2 >> 4));
-    if (c3 !== -1) bytes.push(((c2 & 15) << 4) | (c3 >> 2));
-    if (c4 !== -1) bytes.push(((c3 & 3) << 6) | c4);
-  }
-  return bytes;
-}
-
-function base64urlEncode(bytes) {
-  return stdBase64Encode(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-}
-
-function base64urlDecode(base64url) {
-  return stdBase64Decode(base64url.replace(/-/g, '+').replace(/_/g, '/'));
-}
-
-async function generateJwt(payload, env) {
+async function generateJwtSimple(payload, env) {
   const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
-  const encoder = new TextEncoder();
-  const header = base64urlEncode(encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
-  const payloadStr = base64urlEncode(encoder.encode(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 })));
-  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${header}.${payloadStr}`));
-  const signatureBase64 = base64urlEncode(new Uint8Array(signature));
-  return `${header}.${payloadStr}.${signatureBase64}`;
+  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  const payloadStr = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  const data = header + '.' + payloadStr;
+  const signature = await hmacSha256(data, secret);
+  return header + '.' + payloadStr + '.' + signature;
 }
 
-async function verifyJwt(token, env) {
+async function verifyJwtSimple(token, env) {
   try {
     const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
-    const encoder = new TextEncoder();
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const [header, payloadStr, signature] = parts;
-    const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    const signatureBytes = base64urlDecode(signature);
-    const isValid = await crypto.subtle.verify('HMAC', key, new Uint8Array(signatureBytes), encoder.encode(`${header}.${payloadStr}`));
-    if (!isValid) {
+    const data = header + '.' + payloadStr;
+    const expectedSignature = await hmacSha256(data, secret);
+    if (signature !== expectedSignature) {
       return null;
     }
-    const payloadBytes = base64urlDecode(payloadStr);
-    const payloadStrDecoded = new TextDecoder().decode(new Uint8Array(payloadBytes));
-    const payload = JSON.parse(payloadStrDecoded);
+    const payloadBytes = atob(payloadStr.replace(/-/g, '+').replace(/_/g, '/'));
+    const payload = JSON.parse(payloadBytes);
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
@@ -666,11 +617,32 @@ async function verifyJwt(token, env) {
   }
 }
 
-async function generatePasswordHash(password) {
+function hmacSha256(data, key) {
+  const encoder = new TextEncoder();
+  const dataBytes = encoder.encode(data);
+  const keyBytes = encoder.encode(key);
+  const cryptoKey = crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = crypto.subtle.sign('HMAC', cryptoKey, dataBytes);
+  const promise = new Promise((resolve) => {
+    signature.then(sig => {
+      const bytes = new Uint8Array(sig);
+      let result = '';
+      for (let i = 0; i < bytes.length; i++) {
+        result += String.fromCharCode(bytes[i]);
+      }
+      resolve(btoa(result).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''));
+    }).catch(() => {
+      resolve('');
+    });
+  });
+  return promise;
+}
+
+async function generatePasswordHashSimple(password) {
   const iterations = 60000;
   const saltBytes = new Uint8Array(16);
   crypto.getRandomValues(saltBytes);
-  const salt = stdBase64Encode(saltBytes);
+  const salt = btoa(String.fromCharCode(...saltBytes));
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
   const hashBytes = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations, hash: 'SHA-256' }, key, 256);
@@ -678,28 +650,20 @@ async function generatePasswordHash(password) {
   return `pbkdf2:sha256:${iterations}$${salt}$${hash}`;
 }
 
-async function verifyPassword(password, hash) {
+async function verifyPasswordSimple(password, hash) {
   if (!hash.startsWith('pbkdf2:sha256:')) {
     return false;
   }
   const parts = hash.split('$');
   if (parts.length !== 3) return false;
   const header = parts[0];
-  const storedIterations = parseInt(header.split(':')[2]);
+  let iterations = parseInt(header.split(':')[2]);
+  if (iterations > 100000) iterations = 60000;
   const salt = parts[1];
   const storedHash = parts[2];
   const encoder = new TextEncoder();
-  
-  const tryVerify = async (iterations) => {
-    const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
-    const hashBytes = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations, hash: 'SHA-256' }, key, 256);
-    const computedHash = Array.from(new Uint8Array(hashBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
-    return computedHash === storedHash;
-  };
-  
-  if (storedIterations <= 100000) {
-    return await tryVerify(storedIterations);
-  }
-  
-  return await tryVerify(60000);
+  const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const hashBytes = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations, hash: 'SHA-256' }, key, 256);
+  const computedHash = Array.from(new Uint8Array(hashBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+  return computedHash === storedHash;
 }
