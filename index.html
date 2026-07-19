@@ -1,0 +1,639 @@
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="format-detection" content="telephone=no,email=no,address=no" />
+<meta name="theme-color" content="#070d1f" />
+<title>记账系统管理平台</title>
+<script>
+  window.API_BASE_URL = "";
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          dashbg: "#070d1f", side: "#0b1224",
+          cblue: "#3b82f6", cgreen: "#10b981", cpurple: "#8b5cf6", corange: "#f59e0b", cpink:"#ec4899", cgray:"#6b7280"
+        }
+      }
+    }
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="css/style.css?v=cacheBust0705i" />
+<link rel="manifest" href="/manifest.json?v=cacheBust0705i" />
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png?v=cacheBust0705i" />
+<meta name="apple-mobile-web-app-title" content="智能记账系统" />
+</head>
+<body>
+
+<!--
+==================================================================
+  【登录页背景图替换说明】———将来切换静态图只需�?2 处（右侧账号密码登录玻璃�?100% 保留不动�?
+
+  Step 1：把您的静态背景图复制�?�? frontend/images/login-bg.jpg
+          （图片如果不�?login-bg.jpg，请�?css/style.css �?3371 �?url("...") 路径�?
+
+  Step 2：把下方 section 标签�?class �?
+             <section id="screen-login" class="hidden relative min-h-screen w-full overflow-hidden">
+          改为（追�?bg-image-mode）：
+             <section id="screen-login" class="bg-image-mode hidden relative min-h-screen w-full overflow-hidden">
+
+  👉 效果：全屏铺�?login-bg.jpg + 右侧悬浮玻璃登录卡（3 面板/水晶城市/金色彩带�?自动隐藏，避免重复）
+
+  🔧 可选叠�?class（继续追加到同一�?section class 属性里即可，空格分隔）�?
+      card-center      �?玻璃登录�?水平+垂直居中 （默�?card-right �?居右 6%�?
+      card-left        �?玻璃登录�?居左 6%
+      hide-3panels     �?仅隐�?3 个科技面板（资金分�?流水/收支），默认 60/40 模式也能�?
+      hide-city        �?仅隐�?水晶城市+账本 �?
+      hide-ribbon      �?仅隐�?底部金色光带+电路 �?
+      hide-all-decor   �?同时隐藏上面 3 �?
+
+  🔒 固定不动（登录逻辑全不碰）�?
+      右侧玻璃卡�? 个钩�?id：login-username / login-password / login-msg / login-form / login-btn
+==================================================================
+-->
+<section id="screen-login" class="hidden relative min-h-screen w-full overflow-hidden">
+<!-- 登录�?v2 —�?新参考图 1:1 还原 开�?-->
+<div class="lp-root">
+  <!-- �?60% 装饰 -->
+  <div class="lp-left">
+
+    <!-- 动态粒�?-->
+    <div class="lp-particle" style="left:8%;top:20%;animation-delay:0s;animation-duration:7s"></div>
+    <div class="lp-particle" style="left:25%;top:60%;animation-delay:-1.5s;animation-duration:9s"></div>
+    <div class="lp-particle" style="left:45%;top:30%;animation-delay:-3s;animation-duration:6s"></div>
+    <div class="lp-particle" style="left:65%;top:70%;animation-delay:-4.5s;animation-duration:8s"></div>
+    <div class="lp-particle" style="left:80%;top:40%;animation-delay:-2s;animation-duration:10s"></div>
+    <div class="lp-particle" style="left:15%;top:80%;animation-delay:-5s;animation-duration:7.5s"></div>
+    <div class="lp-particle" style="left:55%;top:15%;animation-delay:-6s;animation-duration:8.5s"></div>
+    <div class="lp-particle" style="left:72%;top:55%;animation-delay:-3.5s;animation-duration:6.5s"></div>
+    <div class="lp-particle" style="left:35%;top:45%;animation-delay:-7s;animation-duration:9.5s"></div>
+    <div class="lp-particle" style="left:90%;top:25%;animation-delay:-1s;animation-duration:7s"></div>
+
+    <!-- 面板 1：左�?资金分布（环形图�?-->
+    <div class="lp-panel lp-panel-capital">
+      <div class="lp-panel-title">资金分布</div>
+      <div class="lp-donut-wrap"><div class="lp-donut"></div></div>
+    </div>
+
+    <!-- 面板 2：中�?资金流水（折+柱） -->
+    <div class="lp-panel lp-panel-flow">
+      <div class="lp-panel-title">资金流水</div>
+      <svg class="lp-flow-svg" viewBox="0 0 120 60" preserveAspectRatio="none" fill="none">
+        <g opacity=".85">
+          <rect x="8"  y="32" width="5" height="18" rx="1" fill="rgba(125,211,252,.6)"/>
+          <rect x="18" y="24" width="5" height="26" rx="1" fill="rgba(125,211,252,.6)"/>
+          <rect x="28" y="36" width="5" height="14" rx="1" fill="rgba(125,211,252,.6)"/>
+          <rect x="38" y="20" width="5" height="30" rx="1" fill="rgba(125,211,252,.6)"/>
+          <rect x="48" y="28" width="5" height="22" rx="1" fill="rgba(125,211,252,.6)"/>
+          <rect x="58" y="16" width="5" height="34" rx="1" fill="rgba(125,211,252,.65)"/>
+          <rect x="68" y="22" width="5" height="28" rx="1" fill="rgba(125,211,252,.6)"/>
+          <rect x="78" y="10" width="5" height="40" rx="1" fill="rgba(125,211,252,.7)"/>
+          <rect x="88" y="20" width="5" height="30" rx="1" fill="rgba(125,211,252,.6)"/>
+          <rect x="98" y="14" width="5" height="36" rx="1" fill="rgba(125,211,252,.75)"/>
+        </g>
+        <polyline points="4,44 14,30 24,40 34,22 44,32 54,16 64,26 74,8 84,20 94,6 104,18 114,28"
+                  fill="none" stroke="#2dd4bf" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="114" cy="28" r="2.4" fill="#2dd4bf" stroke="#fff" stroke-width=".8"/>
+      </svg>
+    </div>
+
+    <!-- 面板 3：右�?今日收支 -->
+    <div class="lp-panel lp-panel-income">
+      <div class="lp-panel-title">今日收支</div>
+      <div class="lp-income-body">
+        <div class="lp-income-label">收款</div>
+        <div class="lp-income-val in">32,686.00</div>
+        <div class="lp-income-space"></div>
+        <div class="lp-income-label">支出</div>
+        <div class="lp-income-val out">18,000.00</div>
+      </div>
+    </div>
+
+    <!-- 中央：水晶方块城�?+ 立体账本 -->
+    <div class="lp-city">
+      <!-- 透视发光底座 -->
+      <div class="lp-base"></div>
+      <!-- 4 栋高低错落楼 -->
+      <div class="lp-tower lp-tl"></div>
+      <div class="lp-tower lp-tm"></div>
+      <div class="lp-tower lp-rm"></div>
+      <div class="lp-tower lp-tr"></div>
+      <!-- 2 个尖顶短�?+ 天线伪元�?-->
+      <div class="lp-spire lp-sl"></div>
+      <div class="lp-spire lp-sr"></div>
+
+      <!-- 立体账本主体 -->
+      <div class="lp-book">
+        <div class="lp-book-word">账本</div>
+        <div class="lp-book-divider"></div>
+        <div class="lp-book-pages"><span></span><span></span><span></span></div>
+        <div class="lp-mini lp-cash">CASH</div>
+        <div class="lp-mini lp-shop">SHOP</div>
+      </div>
+    </div>
+
+    <!-- 底部金色光带 + 金币 + 光点 + 电路方块 -->
+    <div class="lp-ribbon">
+      <svg class="lp-ribbon" viewBox="0 0 800 200" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="lp-g-line-1" x1="0" x2="1">
+            <stop offset="0%"  stop-color="rgba(212,168,87,0)"/>
+            <stop offset="25%" stop-color="rgba(212,168,87,.7)"/>
+            <stop offset="75%" stop-color="rgba(232,196,132,.85)"/>
+            <stop offset="100%" stop-color="rgba(212,168,87,0)"/>
+          </linearGradient>
+          <linearGradient id="lp-g-line-2" x1="0" x2="1">
+            <stop offset="0%"  stop-color="rgba(212,168,87,0)"/>
+            <stop offset="35%" stop-color="rgba(245,208,137,.45)"/>
+            <stop offset="80%" stop-color="rgba(232,196,132,.6)"/>
+            <stop offset="100%" stop-color="rgba(212,168,87,0)"/>
+          </linearGradient>
+        </defs>
+        <!-- 2 条渐变金流线 -->
+        <path class="lp-gold-line" d="M0,120 C150,70 300,170 500,100 C620,60 720,140 800,110"
+              fill="none" stroke="url(#lp-g-line-1)" stroke-width="2.2"
+              stroke-dasharray="20 10" stroke-dashoffset="0"/>
+        <path class="lp-gold-line lp-gold-line-2" d="M0,155 C150,100 300,185 500,125 C620,90 720,165 800,135"
+              fill="none" stroke="url(#lp-g-line-2)" stroke-width="1.4"
+              stroke-dasharray="15 8" stroke-dashoffset="0"/>
+        <!-- 6 枚金币（含描�?+ 高光圆） -->
+        <g transform="translate(0,20)">
+          <circle class="lp-gold-coin" cx="60"  cy="140" r="6.5" fill="#f5d089" stroke="#b07f28" stroke-width="1" opacity=".9"/>
+          <circle class="lp-gold-coin" cx="200" cy="115" r="4.5" fill="#eccf8a" stroke="#b07f28" stroke-width=".8" opacity=".85"/>
+          <circle class="lp-gold-coin" cx="380" cy="150" r="7"   fill="#f6d799" stroke="#a8721f" stroke-width="1" opacity=".95"/>
+          <circle class="lp-gold-coin" cx="380" cy="150" r="2.4" fill="none"    stroke="#fff6d6" stroke-width=".6" opacity=".9"/>
+          <circle class="lp-gold-coin" cx="600" cy="128" r="5"   fill="#eacb85" stroke="#a8721f" stroke-width=".8" opacity=".85"/>
+          <circle class="lp-gold-coin" cx="720" cy="148" r="6"   fill="#f5d089" stroke="#a8721f" stroke-width="1" opacity=".9"/>
+          <!-- 5 枚光�?-->
+          <circle class="lp-gold-dot" cx="120" cy="80"  r="1.8" fill="#ffffff" opacity=".85"/>
+          <circle class="lp-gold-dot" cx="260" cy="62"  r="1.4" fill="#fff5d6" opacity=".78"/>
+          <circle class="lp-gold-dot" cx="430" cy="90"  r="2.2" fill="#fff6d6" opacity=".9"/>
+          <circle class="lp-gold-dot" cx="560" cy="74"  r="1.6" fill="#ffffff" opacity=".8"/>
+          <circle class="lp-gold-dot" cx="680" cy="100" r="1.9" fill="#fff5d6" opacity=".86"/>
+        </g>
+        <!-- 6 个电路蓝色方�?-->
+        <g fill="#2a6fd8" stroke="rgba(140,210,255,.6)" stroke-width=".5" opacity=".75">
+          <rect x="40"  y="170" width="8" height="8"/>
+          <rect x="140" y="182" width="6" height="6"/>
+          <rect x="250" y="168" width="10" height="10"/>
+          <rect x="420" y="178" width="7" height="7"/>
+          <rect x="540" y="170" width="9" height="9"/>
+          <rect x="680" y="184" width="6" height="6"/>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <!-- �?40% 玻璃卡登�?-->
+  <div class="lp-right">
+    <div class="lp-card">
+      <div class="lp-card-inner">
+        <div class="lp-title">记账系统管理平台</div>
+        <div class="lp-subtitle">管理员登录</div>
+
+        <!-- 账号�?id 保留：login-username -->
+        <div class="lp-input-group">
+          <span class="lp-input-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#8ea4c9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+          </span>
+          <input id="login-username" class="lp-input" type="text" value="" placeholder="请输入6位数字账号或11位手机号" maxlength="11" autocomplete="username" inputmode="numeric">
+        </div>
+
+        <!-- 密码�?id 保留：login-password / 右侧眼睛 id：show-password-eye -->
+        <form id="login-form" onsubmit="event.preventDefault(); document.getElementById('login-btn').click();" style="margin:0;padding:0;">
+          <div class="lp-input-group">
+            <span class="lp-input-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#8ea4c9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            </span>
+            <input id="login-password" class="lp-input lp-is-password" type="password" value="" placeholder="请输入6~12位数字密码" maxlength="12" autocomplete="current-password" inputmode="numeric">
+            <button id="show-password-eye" type="button" class="lp-eye" aria-label="切换密码显示">
+              <!-- 初始：密码隐藏态（带×斜线的眼睛）—�?login.js click 会切�?type 并替换内�?SVG -->
+              <svg viewBox="0 0 24 24" fill="none" stroke="#8ea4c9" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.57 20.57 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a20.6 20.6 0 0 1-3.17 4.19"/>
+                <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        </form>
+
+        <!-- 验证码行：输入框 + 图片 + 换一换�?-->
+        <div class="lp-captcha-row">
+          <div class="lp-input-group lp-captcha-input-group">
+            <span class="lp-input-icon lp-captcha-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#8ea4c9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6l9-4z"/></svg>
+            </span>
+            <input id="login-captcha" class="lp-input lp-captcha-input" type="text" value="" placeholder="请输入右侧验证码" maxlength="4" autocomplete="off" inputmode="text">
+          </div>
+          <div class="lp-captcha-img-wrap" title="点击刷新验证码">
+            <img id="login-captcha-img" class="lp-captcha-img" alt="验证码加载中…请稍候" src="data:image/svg+xml;charset=UTF-8;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNjAiIGhlaWdodD0iNTIiIHZpZXdCb3g9IjAgMCAxNjAgNTIiIHByZXNlcnZlQXNwZWN0UmF0aW89InhNaWRZTWlkIG1lZXQiPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSIxNjAiIGhlaWdodD0iNTIiIGZpbGw9IiNmZmYiIHN0cm9rZT0iI2I1YzJkMCIgc3Ryb2tlLXdpZHRoPSIxIiByeD0iNiIgcnk9IjYiLz48ZGVmcz48bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwJSIgeTE9IjAlIiB4Mj0iMTAwJSIgeTI9IjEwMCUiPjxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMzYjgyZjYiLz48c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM4YjVjZjYiLz48L2xpbmVhckdyYWRpZW50PjwvZGVmcz48cmVjdCB4PSIxIiB5PSIxIiB3aWR0aD0iMjQiIGhlaWdodD0iNTAiIGZpbGw9InVybCgjZykiIG9wYWNpdHk9IjAuMTIiIHJ4PSI1Ii8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLFNlZ29lIFVJLE1pY3Jvc29mdCBZYUhlaSxNZWlyaW8gVUksc3lzLXN0ZW0sc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZm9udC13ZWlnaHQ9IjUwMCIgZmlsbD0iIzY0NzQ4YiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgYWxpZ25tZW50LWJhc2VsaW5lPSJtaWRkbGUiIGR5PSIuM2VtIj7liqjovazotbPlkI4uLi7orqHlh7booYzmlLnlj5g8L3RleHQ+PHJlY3QgeD0iMTMzIiB5PSI0IiB3aWR0aD0iMjIiIGhlaWdodD0iNDAiIHJ4PSI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM5NGEzYjgiIHN0cm9rZS13aWR0aD0iMSIgc3Ryb2tlLWRhc2hhcnJheT0iMywyIiBvcGFjaXR5PSIwLjYiLz48L3N2Zz4=">
+            <button id="login-captcha-refresh" type="button" class="lp-captcha-refresh" aria-label="刷新验证码">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span>换一张</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 登录按钮 id：login-btn -->
+        <button id="login-btn" type="button" class="lp-login-btn">立即登录</button>
+
+        <!-- 错误提示 id：login-msg -->
+        <div id="login-msg" class="lp-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- 登录�?v2 —�?新参考图 1:1 还原 结束 -->
+</section>
+
+<section id="screen-dashboard" class="hidden min-h-screen w-full bg-dashbg text-white">
+  <section class="dashboard-wrap flex h-full bg-[#f1f5f9] text-[#1e293b]">
+
+    <aside id="sidebar" class="sidebar w-60 shrink-0 bg-[#0f2347] text-white flex flex-col py-4 gap-1">
+      <div class="px-5 pb-4 mb-2 border-b border-white/10">
+        <h1 class="text-xl font-bold flex items-center gap-2">
+          <span class="w-9 h-9 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+          </span>
+          智能记账
+        </h1>
+      </div>
+
+      <nav class="flex-1 flex flex-col gap-1 px-2">
+        <a href="#/dashboard/home" class="menu-item flex items-center gap-3 px-5 py-2.5 rounded bg-[#1b3567] text-white">
+          <span class="icon-20 w-5 h-5 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg></span>
+          <span>首页</span>
+        </a>
+        <a href="#/dashboard/bills" class="menu-item flex items-center gap-3 px-5 py-2.5 rounded hover:bg-white/10 text-white/80">
+          <span class="icon-20 w-5 h-5 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/></svg></span>
+          <span>交易记录</span>
+        </a>
+        <a href="#/dashboard/reminders" class="menu-item flex items-center gap-3 px-5 py-2.5 rounded hover:bg-white/10 text-white/80" id="sb-menu-reminders">
+          <span class="icon-20 w-5 h-5 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg></span>
+          <span>收租提醒</span>
+          <span id="sb-reminders-exclaim" style="display:none;"></span>
+        </a>
+        <a href="#/dashboard/stats" class="menu-item flex items-center gap-3 px-5 py-2.5 rounded hover:bg-white/10 text-white/80">
+          <span class="icon-20 w-5 h-5 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg></span>
+          <span>统计分析</span>
+        </a>
+        <a href="#/dashboard/reports" class="menu-item flex items-center gap-3 px-5 py-2.5 rounded hover:bg-white/10 text-white/80">
+          <span class="icon-20 w-5 h-5 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg></span>
+          <span>报表导出</span>
+        </a>
+        <a href="#/dashboard/settings" class="menu-item flex items-center gap-3 px-5 py-2.5 rounded hover:bg-white/10 text-white/80">
+          <span class="icon-20 w-5 h-5 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
+          <span>系统设置</span>
+        </a>
+        <a href="#/dashboard/admin" data-admin-menu class="menu-item flex items-center gap-3 px-5 py-2.5 rounded hover:bg-white/10 text-amber-300" style="display:none;">
+          <span class="icon-20 w-5 h-5 shrink-0"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg></span>
+          <span>管理中心</span>
+          <span class="ml-auto px-2 py-0.5 rounded text-[10px] font-bold tracking-wider" style="background:rgba(251,191,36,.2);color:#fbbf24;border:1px solid rgba(251,191,36,.35);">ADMIN</span>
+        </a>
+      </nav>
+
+      <div class="mx-2 mt-4 p-3 rounded-lg bg-white/5 border border-white/10">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cblue to-cpurple flex items-center justify-center text-white font-bold text-sm shrink-0">
+            用
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium truncate">用户昵称</div>
+            <div class="text-xs text-white/50 truncate">普通用户</div>
+          </div>
+        </div>
+        <button id="logout-btn" class="w-full py-2 rounded text-sm text-white/80 hover:bg-white/10 border border-white/10 flex items-center justify-center gap-2 transition">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+          退出登录
+        </button>
+      </div>
+    </aside>
+
+    <main class="dashboard-main flex-1 flex flex-col overflow-auto">
+      <button id="mobile-menu-btn" aria-label="菜单"
+        class="md:hidden fixed top-4 left-4 z-40 w-10 h-10 rounded-lg bg-white shadow flex items-center justify-center text-[#0f2347] border border-gray-200 active:scale-95 transition">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-6 h-6"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div id="mobile-menu-mask" class="md:hidden hidden fixed inset-0 z-29 bg-black/40 backdrop-blur-sm"></div>
+
+      <div class="welcome-bar bg-[linear-gradient(90deg,#3b82f6,#8b5cf6)] text-white rounded-xl m-5 mt-14 md:mt-5 p-5 flex flex-col md:flex-row gap-4 md:gap-0 justify-between items-start md:items-center">
+        <div>
+          <div class="text-2xl font-bold mb-1">下午好，用户昵称 👋</div>
+          <div class="text-white/80 text-sm">今天是记账的好日子，让我们一起管理好财务吧~</div>
+        </div>
+        <div class="flex items-center gap-2 w-full md:w-auto">
+          <button class="px-5 py-2.5 rounded-lg bg-white/15 hover:bg-white/25 backdrop-blur text-white border border-white/20 flex items-center gap-2 transition flex-1 md:flex-none justify-center">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+            系统通知 <span class="ml-1 px-2 py-0.5 rounded-full bg-white text-cblue text-xs font-bold">3</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="modules-wrap" style="position:relative;flex:1;min-height:0;">
+        <section id="module-home" class="module-container">
+      <div class="container grid gap-5 px-5 pb-6">
+
+        <div id="stats-row" class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-5">
+          <div class="bg-white rounded-xl shadow p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm text-gray-500">本月收入</span>
+              <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center text-green-600">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+              </div>
+            </div>
+            <div class="text-2xl font-bold text-gray-800">¥ 32,686</div>
+            <div class="text-xs text-green-600 mt-2 flex items-center gap-1">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3"><path d="M5 12l5-5 7 7"/><path d="M10 7v10"/></svg>
+              较上月+12.5%
+            </div>
+          </div>
+          <div class="bg-white rounded-xl shadow p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm text-gray-500">本月支出</span>
+              <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center text-red-600">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><path d="M12 5v14"/><path d="M5 12l7 7 7-7"/></svg>
+              </div>
+            </div>
+            <div class="text-2xl font-bold text-gray-800">¥ 18,000</div>
+            <div class="text-xs text-red-600 mt-2 flex items-center gap-1">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3 h-3"><path d="M19 12l-5 5-7-7"/><path d="M14 17V7"/></svg>
+              较上月-5.2%
+            </div>
+          </div>
+          <div class="bg-white rounded-xl shadow p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm text-gray-500">当前结余</span>
+              <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M2 10h20"/></svg>
+              </div>
+            </div>
+            <div class="text-2xl font-bold text-gray-800">¥ 14,686</div>
+            <div class="text-xs text-gray-500 mt-2">本月净收入</div>
+          </div>
+          <div class="bg-white rounded-xl shadow p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm text-gray-500">总资产</span>
+              <div class="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5"><circle cx="12" cy="12" r="10"/><path d="M12 6v12"/><path d="M15 9H9.5a2.5 2.5 0 000 5h5a2.5 2.5 0 010 5H6"/></svg>
+              </div>
+            </div>
+            <div class="text-2xl font-bold text-gray-800">¥ 286,500</div>
+            <div class="text-xs text-purple-600 mt-2">较年初+8.3%</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div class="col-span-1 md:col-span-2 min-h-[320px] md:h-80 bg-white rounded-xl shadow p-5 flex flex-col">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">收支趋势</h2>
+            <canvas id="dashboard-trend" class="flex-1 w-full"></canvas>
+          </div>
+          <div class="h-80 bg-white rounded-xl shadow p-5 flex flex-col">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">预算执行</h2>
+            <div id="budget-ring" class="flex-1 flex flex-col items-center justify-center">
+              <div class="relative">
+                <svg viewBox="0 0 120 120" class="w-44 h-44">
+                  <circle cx="60" cy="60" r="50" fill="none" stroke="#e2e8f0" stroke-width="12"/>
+                  <circle cx="60" cy="60" r="50" fill="none" stroke="#3b82f6" stroke-width="12"
+                          stroke-linecap="round" transform="rotate(-90 60 60)"
+                          stroke-dasharray="314" stroke-dashoffset="100"/>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                  <div class="text-2xl font-bold text-gray-800">68%</div>
+                  <div class="text-xs text-gray-500 mt-1">已使用</div>
+                </div>
+              </div>
+              <div class="mt-4 grid grid-cols-2 gap-4 w-full px-2">
+                <div class="text-center">
+                  <div class="text-lg font-bold text-cblue">¥ 3,400</div>
+                  <div class="text-xs text-gray-500 mt-0.5">已支出</div>
+                </div>
+                <div class="text-center">
+                  <div class="text-lg font-bold text-gray-700">¥ 5,000</div>
+                  <div class="text-xs text-gray-500 mt-0.5">总预算</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div id="quick-col" class="min-h-[320px] md:h-80 bg-white rounded-xl shadow p-5 flex flex-col">
+            <h2 class="text-lg font-bold text-gray-800 mb-4">快捷操作</h2>
+            <div class="flex-1 grid grid-cols-2 gap-3 content-start">
+              <button class="flex flex-col items-center justify-center p-4 rounded-xl bg-green-50 hover:bg-green-100 transition border border-green-100">
+                <div class="w-12 h-12 rounded-full bg-green-500 text-white flex items-center justify-center mb-2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-6 h-6"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                </div>
+                <span class="text-sm font-medium text-green-800">记收入</span>
+              </button>
+              <button class="flex flex-col items-center justify-center p-4 rounded-xl bg-red-50 hover:bg-red-100 transition border border-red-100">
+                <div class="w-12 h-12 rounded-full bg-red-500 text-white flex items-center justify-center mb-2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-6 h-6"><path d="M5 12h14"/></svg>
+                </div>
+                <span class="text-sm font-medium text-red-800">记支出</span>
+              </button>
+              <button class="flex flex-col items-center justify-center p-4 rounded-xl bg-blue-50 hover:bg-blue-100 transition border border-blue-100">
+                <div class="w-12 h-12 rounded-full bg-blue-500 text-white flex items-center justify-center mb-2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-6 h-6"><path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/></svg>
+                </div>
+                <span class="text-sm font-medium text-blue-800">转账</span>
+              </button>
+              <button class="flex flex-col items-center justify-center p-4 rounded-xl bg-purple-50 hover:bg-purple-100 transition border border-purple-100">
+                <div class="w-12 h-12 rounded-full bg-purple-500 text-white flex items-center justify-center mb-2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-6 h-6"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+                </div>
+                <span class="text-sm font-medium text-purple-800">导入账单</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="trans-col col-span-1 md:col-span-2 min-h-[320px] md:h-80 bg-white rounded-xl shadow p-5 flex flex-col">
+            <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center justify-between">
+              近期交易
+              <a href="#" class="text-sm font-normal text-cblue hover:underline">查看全部 →</a>
+            </h2>
+            <div id="trans-list" class="flex-1 overflow-auto divide-y divide-gray-100 -mx-2">
+              <div class="flex items-center gap-3 px-2 py-3 hover:bg-gray-50">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cblue to-cpurple flex items-center justify-center text-white font-bold text-sm shrink-0">
+            用
+          </div>
+          <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">工资收入</div>
+                  <div class="text-xs text-gray-500 mt-0.5">2026-07-01 09:30 · 工资</div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-sm font-bold text-green-600">+¥ 15,000.00</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 px-2 py-3 hover:bg-gray-50">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cblue to-cpurple flex items-center justify-center text-white font-bold text-sm shrink-0">
+            用
+          </div>
+          <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">超市购物</div>
+                  <div class="text-xs text-gray-500 mt-0.5">2026-07-01 18:45 · 餐饮购物</div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-sm font-bold text-red-600">-¥ 268.50</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 px-2 py-3 hover:bg-gray-50">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cblue to-cpurple flex items-center justify-center text-white font-bold text-sm shrink-0">
+            用
+          </div>
+          <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">地铁出行</div>
+                  <div class="text-xs text-gray-500 mt-0.5">2026-07-01 08:15 · 交通</div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-sm font-bold text-red-600">-¥ 7.00</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 px-2 py-3 hover:bg-gray-50">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cblue to-cpurple flex items-center justify-center text-white font-bold text-sm shrink-0">
+            用
+          </div>
+          <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">理财收益</div>
+                  <div class="text-xs text-gray-500 mt-0.5">2026-06-30 15:20 · 理财</div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-sm font-bold text-green-600">+¥ 328.60</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 px-2 py-3 hover:bg-gray-50">
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-cblue to-cpurple flex items-center justify-center text-white font-bold text-sm shrink-0">
+            用
+          </div>
+          <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">外卖午餐</div>
+                  <div class="text-xs text-gray-500 mt-0.5">2026-06-30 12:05 · 餐饮</div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="text-sm font-bold text-red-600">-¥ 38.00</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+        </section>
+        <section id="module-bills" class="module-container hidden">
+          <div id="mod-bills-content" class="px-5 pb-6"></div>
+        </section>
+        <section id="module-reminders" class="module-container hidden">
+          <div id="mod-reminders-content" class="px-5 pb-6"></div>
+        </section>
+        <section id="module-stats" class="module-container hidden">
+          <div id="mod-stats-content" class="px-5 pb-6"></div>
+        </section>
+        <section id="module-reports" class="module-container hidden">
+          <div id="mod-reports-content" class="px-5 pb-6"></div>
+        </section>
+        <section id="module-settings" class="module-container hidden">
+          <div id="mod-settings-content" class="px-5 pb-6"></div>
+        </section>
+        <section id="module-categories" class="module-container hidden">
+          <div class="flex items-center justify-center min-h-[60vh] bg-white rounded-2xl shadow-sm p-10 text-center">
+            <div>
+              <h3 class="text-xl font-bold text-slate-700 mb-2 tracking-widest">该模块已合并到【交易记录】【统计分析】</h3>
+              <button onclick="location.hash='#/dashboard/bills'" class="px-6 py-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white text-sm rounded-md transition mt-4">前往交易记录</button>
+            </div>
+          </div>
+        </section>
+        <section id="module-budget" class="module-container hidden">
+          <div class="flex items-center justify-center min-h-[60vh] bg-white rounded-2xl shadow-sm p-10 text-center">
+            <div>
+              <h3 class="text-xl font-bold text-slate-700 mb-2 tracking-widest">预算功能可在【系统设置】中配置</h3>
+              <button onclick="location.hash='#/dashboard/stats'" class="px-6 py-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white text-sm rounded-md transition mt-4">去看收支分析</button>
+            </div>
+          </div>
+        </section>
+        <section id="module-assets" class="module-container hidden">
+          <div class="flex items-center justify-center min-h-[60vh] bg-white rounded-2xl shadow-sm p-10 text-center">
+            <div>
+              <h3 class="text-xl font-bold text-slate-700 mb-2 tracking-widest">资产账户</h3>
+              <p class="text-sm text-slate-400 mb-4">总资产可在【首页仪表板】查看，数据实时同步</p>
+              <button onclick="location.hash='#/dashboard/home'" class="px-6 py-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white text-sm rounded-md transition">回到首页</button>
+            </div>
+          </div>
+        </section>
+        <section id="module-tags" class="module-container hidden">
+          <div class="flex items-center justify-center min-h-[60vh] bg-white rounded-2xl shadow-sm p-10 text-center">
+            <div>
+              <h3 class="text-xl font-bold text-slate-700 mb-2 tracking-widest">标签管理</h3>
+              <p class="text-sm text-slate-400 mb-4">标签已内置在交易分类里，在【交易记录】里搜索"描述关键词"等价于标签筛选</p>
+              <button onclick="location.hash='#/dashboard/bills'" class="px-6 py-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white text-sm rounded-md transition">去交易记录</button>
+            </div>
+          </div>
+        </section>
+        <section id="module-members" class="module-container hidden">
+          <div class="flex items-center justify-center min-h-[60vh] bg-white rounded-2xl shadow-sm p-10 text-center">
+            <div>
+              <h3 class="text-xl font-bold text-slate-700 mb-2 tracking-widest">家庭成员</h3>
+              <p class="text-sm text-slate-400 mb-4">账号按房间号/账号独立隔离，可在【系统设置】切换账号</p>
+              <button onclick="location.hash='#/dashboard/settings'" class="px-6 py-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white text-sm rounded-md transition mt-4">打开系统设置</button>
+            </div>
+          </div>
+        </section>
+        <section id="module-admin" class="module-container hidden">
+          <div id="mod-admin-content" class="px-5 pb-6"></div>
+        </section>
+      </div>
+    </main>
+
+    <div class="bottom-nav fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] md:hidden">
+      <div class="grid grid-cols-5 py-2">
+        <a href="#/dashboard/home" class="flex flex-col items-center gap-1 py-1 text-cblue">
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6"><path d="M12 3l9 8h-3v9h-5v-6H11v6H6v-9H3z"/></svg>
+          <span class="text-xs font-medium">首页</span>
+        </a>
+        <a href="#/dashboard/bills" class="flex flex-col items-center gap-1 py-1 text-gray-500">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-6 h-6"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/></svg>
+          <span class="text-xs">交易</span>
+        </a>
+        <a href="#/dashboard/reminders" class="flex flex-col items-center gap-1 py-1 -mt-6">
+          <div class="w-14 h-14 rounded-full bg-gradient-to-br from-cblue to-cpurple text-white flex items-center justify-center shadow-lg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="w-7 h-7"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          </div>
+          <span class="text-xs text-gray-500 mt-0.5">收支</span>
+        </a>
+        <a href="#/dashboard/stats" class="flex flex-col items-center gap-1 py-1 text-gray-500">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-6 h-6"><path d="M3 3v18h18"/><path d="M7 14l4-4 4 4 5-5"/></svg>
+          <span class="text-xs">统计</span>
+        </a>
+        <a href="#/dashboard/settings" class="flex flex-col items-center gap-1 py-1 text-gray-500">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-6 h-6"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-7 8-7s8 3 8 7"/></svg>
+          <span class="text-xs">我的</span>
+        </a>
+      </div>
+    </div>
+
+  </section>
+</section>
+
+<script src="js/api.js?v=cacheBust0705d"></script>
+<script src="js/router.js?v=cacheBust1120"></script>
+<script src="js/login.js?v=cacheBust1120"></script>
+<script src="js/dashboard.js?v=cacheBust0705e"></script>
+<script src="js/modules/bills.js?v=cacheBust1120"></script>
+<script src="js/modules/reminders.js?v=cacheBust0705f"></script>
+<script src="js/modules/stats.js?v=cacheBust0705e"></script>
+<script src="js/modules/reports.js?v=cacheBust1120"></script>
+<script src="js/modules/settings.js?v=cacheBust0705h"></script>
+<script src="js/modules/admin.js"></script>
+</body>
+</html>

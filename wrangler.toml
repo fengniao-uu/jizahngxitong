@@ -2,10 +2,6 @@ name = "jizhang-system"
 type = "pages"
 account_id = "ef3d5ed4216ab2dd7c64dd679ce0b2cd"
 
-[build]
-command = ""
-publish = "frontend"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "jizhanggaunlixitong"
