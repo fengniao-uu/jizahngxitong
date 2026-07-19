@@ -62,4 +62,4 @@ CREATE TABLE IF NOT EXISTS captchas (
     expires_at TIMESTAMP NOT NULL
 );
 
-INSERT INTO users(account_no, password_hash, role, nickname, is_active) VALUES('100000', '$2b$10$EixZaYbB.rK4fl8x2q7Meu6Q6D2V5fF5Q5Q5Q5Q5Q5Q5Q5Q5Q', 1, '超级管理员', TRUE) ON CONFLICT (account_no) DO NOTHING;
+INSERT INTO users(account_no, password_hash, role, nickname, is_active) VALUES('100000', 'pbkdf2:sha256:260000$HxtfSgZXm5el7epS$b217aaee8928134cbae96dd9cc1ba9299efb94f7088185904cbbd58e31b98623', 1, '超级管理员', TRUE) ON CONFLICT (account_no) DO NOTHING;

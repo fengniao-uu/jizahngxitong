@@ -161,7 +161,7 @@ WARN_DEMO_DEFAULT_CREDENTIALS: bool = True
 # ==================== 管理员账号 ====================
 # 默认管理员账号（首次部署自动创建，无管理员时触发；首次登录请立刻修改密码！）
 ADMIN_DEFAULT_ACCOUNT: str = os.getenv("ADMIN_ACCOUNT", "100000").strip()[:6] or "100000"
-ADMIN_DEFAULT_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "123456").strip()[:12] or "123456"
+ADMIN_DEFAULT_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin123").strip()[:12] or "admin123"
 # 角色枚举：0=普通用户（记账/收租），1=超级管理员（用户管理/解锁/审计）
 ROLE_USER: int = 0
 ROLE_ADMIN: int = 1
