@@ -10,18 +10,161 @@ export async function onRequest(context) {
   return null;
 }
 
+async function initDb(env) {
+  const DB_SCHEMA = `
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_no CHAR(6) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_login_at TIMESTAMP,
+      is_deleted BOOLEAN NOT NULL DEFAULT 0,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      last_failed_at TIMESTAMP,
+      locked_until TIMESTAMP,
+      nickname VARCHAR(32) NOT NULL DEFAULT '',
+      phone VARCHAR(20) NOT NULL DEFAULT '',
+      is_active BOOLEAN NOT NULL DEFAULT 1,
+      role INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type CHAR(4) NOT NULL CHECK(type IN ('收入','支出')),
+      name VARCHAR(20) NOT NULL,
+      is_system BOOLEAN NOT NULL DEFAULT 0,
+      sort INTEGER NOT NULL DEFAULT 0,
+      disabled BOOLEAN NOT NULL DEFAULT 0,
+      UNIQUE(user_id, type, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type CHAR(4) NOT NULL CHECK(type IN ('收入','支出')),
+      category VARCHAR(20) NOT NULL,
+      amount DECIMAL(12,2) NOT NULL CHECK(amount > 0),
+      description VARCHAR(200) NOT NULL DEFAULT '',
+      room_no VARCHAR(20) NOT NULL DEFAULT '',
+      trans_date DATE NOT NULL,
+      tag VARCHAR(50) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      deleted BOOLEAN NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS reminders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      room_no VARCHAR(20) NOT NULL,
+      rent_amount DECIMAL(12,2) NOT NULL CHECK(rent_amount >= 0),
+      due_date DATE NOT NULL,
+      lease_end_date DATE,
+      status VARCHAR(10) NOT NULL DEFAULT '未完成' CHECK(status IN ('未完成','已完成','已确认')),
+      remark VARCHAR(200) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      deleted BOOLEAN NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS captchas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      captcha_id VARCHAR(64) NOT NULL UNIQUE,
+      code VARCHAR(8) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMP NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS announcements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title VARCHAR(80) NOT NULL,
+      content TEXT NOT NULL,
+      banner_level VARCHAR(10) NOT NULL DEFAULT 'info',
+      priority INTEGER NOT NULL DEFAULT 0,
+      is_pinned BOOLEAN NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT 1,
+      effective_at TIMESTAMP,
+      expire_at TIMESTAMP,
+      created_by INTEGER,
+      updated_by INTEGER,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      is_deleted BOOLEAN NOT NULL DEFAULT 0
+    );
+  `;
+  
+  const db = env.DB;
+  const statements = DB_SCHEMA.split(';').filter(s => s.trim());
+  
+  for (const stmt of statements) {
+    try {
+      await db.prepare(stmt.trim()).run();
+    } catch (e) {
+      console.warn('Init schema error:', e.message);
+    }
+  }
+  
+  await ensureAdminUser(env);
+}
+
+async function ensureAdminUser(env) {
+  const db = env.DB;
+  const result = await db.prepare('SELECT id FROM users WHERE account_no = ? AND is_deleted = 0 LIMIT 1').bind('100000').first();
+  
+  if (result) return;
+  
+  const pwdHash = await generatePasswordHash('123456');
+  await db.prepare(`
+    INSERT INTO users(account_no, password_hash, role, nickname, is_active) 
+    VALUES(?, ?, 1, '超级管理员', 1)
+  `).bind('100000', pwdHash).run();
+  
+  const admin = await db.prepare('SELECT id FROM users WHERE account_no = ? LIMIT 1').bind('100000').first();
+  const adminId = admin.id;
+  
+  const SYSTEM_CATEGORIES = {
+    '收入': ['房租', '网费', '取暖费', '房租押金', '门禁卡押金', '违约金', '其他'],
+    '支出': ['网费', '招租费', '配件', '工人费', '保洁费', '水电', '维修', '其他']
+  };
+  
+  for (const [type, names] of Object.entries(SYSTEM_CATEGORIES)) {
+    for (let i = 0; i < names.length; i++) {
+      try {
+        await db.prepare(`
+          INSERT OR IGNORE INTO categories(user_id, type, name, is_system, sort)
+          VALUES(?, ?, ?, 1, ?)
+        `).bind(adminId, type, names[i], i).run();
+      } catch (e) {}
+    }
+  }
+}
+
 async function handleApiRequest(request, env, path) {
   const method = request.method;
   
+  try {
+    await initDb(env);
+  } catch (e) {
+    console.error('DB init error:', e);
+    return jsonResponse(500, '数据库初始化失败');
+  }
+  
   if (path === '/api/system/health') {
-    return jsonResponse(0, 'ok', { status: 'running' });
+    try {
+      await env.DB.prepare('SELECT 1').first();
+      return jsonResponse(0, 'ok', { status: 'running' });
+    } catch (e) {
+      return jsonResponse(500, '数据库连接失败');
+    }
   }
   
   if (path === '/api/auth/captcha' && method === 'GET') {
     try {
       const { captcha_id, code, svg } = generateCaptcha();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
-      await supabaseRequest('POST', '/rest/v1/captchas', { captcha_id, code, expires_at: expiresAt }, env);
+      await env.DB.prepare('INSERT INTO captchas(captcha_id, code, expires_at) VALUES(?, ?, ?)')
+        .bind(captcha_id, code, expiresAt).run();
       return new Response(JSON.stringify({ code: 0, msg: 'ok', data: { captcha_id, image: svg, ttl: 300, length: 4 } }), {
         headers: { 'Content-Type': 'application/json; charset=utf-8' }
       });
@@ -40,29 +183,27 @@ async function handleApiRequest(request, env, path) {
         return jsonResponse(400, '账号或密码不能为空');
       }
       
-      const captchaResponse = await supabaseRequest('GET', `/rest/v1/captchas?captcha_id=eq.${captcha_id}&expires_at=gte.${new Date().toISOString()}`, null, env);
-      const captchas = captchaResponse.results || [];
+      const captcha = await env.DB.prepare('SELECT * FROM captchas WHERE captcha_id = ? AND expires_at > datetime("now") LIMIT 1')
+        .bind(captcha_id).first();
       
-      if (captchas.length === 0) {
+      if (!captcha) {
         return jsonResponse(400, '验证码已过期，请刷新重试');
       }
       
-      const captcha = captchas[0];
       if (captcha.code.toLowerCase() !== captcha_code.toLowerCase()) {
-        await supabaseRequest('DELETE', `/rest/v1/captchas?captcha_id=eq.${captcha_id}`, null, env);
+        await env.DB.prepare('DELETE FROM captchas WHERE captcha_id = ?').bind(captcha_id).run();
         return jsonResponse(400, '验证码错误');
       }
       
-      await supabaseRequest('DELETE', `/rest/v1/captchas?captcha_id=eq.${captcha_id}`, null, env);
+      await env.DB.prepare('DELETE FROM captchas WHERE captcha_id = ?').bind(captcha_id).run();
       
-      const userResponse = await supabaseRequest('GET', `/rest/v1/users?account_no=eq.${account_no}`, null, env);
-      const users = userResponse.results || [];
+      const user = await env.DB.prepare('SELECT * FROM users WHERE account_no = ? AND is_deleted = 0 LIMIT 1')
+        .bind(account_no).first();
       
-      if (users.length === 0) {
+      if (!user) {
         return jsonResponse(401, '账号或密码错误');
       }
       
-      const user = users[0];
       const isValid = await verifyPassword(password, user.password_hash);
       
       if (!isValid) {
@@ -73,7 +214,8 @@ async function handleApiRequest(request, env, path) {
         return jsonResponse(403, '账号已被禁用');
       }
       
-      await supabaseRequest('PATCH', `/rest/v1/users?id=eq.${user.id}`, { last_login_at: new Date().toISOString() }, env);
+      await env.DB.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .bind(user.id).run();
       
       const token = generateJwt({ id: user.id, account_no: user.account_no, role: user.role }, env);
       
@@ -102,21 +244,34 @@ async function handleApiRequest(request, env, path) {
         return jsonResponse(400, '账号或密码不能为空');
       }
       
-      const existingResponse = await supabaseRequest('GET', `/rest/v1/users?account_no=eq.${account_no}`, null, env);
-      if (existingResponse.results && existingResponse.results.length > 0) {
+      const existing = await env.DB.prepare('SELECT id FROM users WHERE account_no = ? AND is_deleted = 0 LIMIT 1')
+        .bind(account_no).first();
+      
+      if (existing) {
         return jsonResponse(409, '该账号已被占用');
       }
       
-      const hash = await hashPassword(password);
+      const hash = await generatePasswordHash(password);
       
-      await supabaseRequest('POST', '/rest/v1/users', {
-        account_no,
-        password_hash: hash,
-        nickname: nickname || '',
-        role: 0,
-        is_active: true,
-        created_at: new Date().toISOString()
-      }, env);
+      await env.DB.prepare('INSERT INTO users(account_no, password_hash, nickname, role, is_active) VALUES(?, ?, ?, 0, 1)')
+        .bind(account_no, hash, nickname || '').run();
+      
+      const newUser = await env.DB.prepare('SELECT id FROM users WHERE account_no = ? LIMIT 1').bind(account_no).first();
+      const userId = newUser.id;
+      
+      const SYSTEM_CATEGORIES = {
+        '收入': ['房租', '网费', '取暖费', '房租押金', '门禁卡押金', '违约金', '其他'],
+        '支出': ['网费', '招租费', '配件', '工人费', '保洁费', '水电', '维修', '其他']
+      };
+      
+      for (const [type, names] of Object.entries(SYSTEM_CATEGORIES)) {
+        for (let i = 0; i < names.length; i++) {
+          try {
+            await env.DB.prepare('INSERT OR IGNORE INTO categories(user_id, type, name, is_system, sort) VALUES(?, ?, ?, 1, ?)')
+              .bind(userId, type, names[i], i).run();
+          } catch (e) {}
+        }
+      }
       
       return jsonResponse(0, '注册成功', { account_no });
     } catch (error) {
@@ -139,16 +294,20 @@ async function handleApiRequest(request, env, path) {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const incomeResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.收入&trans_date=gte.${today}&select=sum(amount)`, null, env);
-      const expenseResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.支出&trans_date=gte.${today}&select=sum(amount)`, null, env);
-      const txCount = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=count(*)`, null, env);
-      const remCount = await supabaseRequest('GET', `/rest/v1/reminders?user_id=eq.${decoded.id}&status=eq.未完成&select=count(*)`, null, env);
+      const incomeResult = await env.DB.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = ? AND trans_date >= ? AND deleted = 0')
+        .bind(decoded.id, '收入', today).first();
+      const expenseResult = await env.DB.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = ? AND trans_date >= ? AND deleted = 0')
+        .bind(decoded.id, '支出', today).first();
+      const txCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM transactions WHERE user_id = ? AND deleted = 0')
+        .bind(decoded.id).first();
+      const remCount = await env.DB.prepare('SELECT COUNT(*) as cnt FROM reminders WHERE user_id = ? AND status = ? AND deleted = 0')
+        .bind(decoded.id, '未完成').first();
       
       return jsonResponse(0, 'ok', {
-        today_income: parseFloat(incomeResult.results?.[0]?.sum || 0),
-        today_expense: parseFloat(expenseResult.results?.[0]?.sum || 0),
-        tx_count: parseInt(txCount.results?.[0]?.count || 0),
-        pending_reminders: parseInt(remCount.results?.[0]?.count || 0)
+        today_income: parseFloat(incomeResult.total || 0),
+        today_expense: parseFloat(expenseResult.total || 0),
+        tx_count: parseInt(txCount.cnt || 0),
+        pending_reminders: parseInt(remCount.cnt || 0)
       });
     } catch (error) {
       console.error('Summary error:', error);
@@ -159,7 +318,10 @@ async function handleApiRequest(request, env, path) {
   if (path === '/api/dashboard/recent' && method === 'GET') {
     try {
       const limit = parseInt(url.searchParams.get('limit') || '5');
-      const recent = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=id,type,category,amount,description,room_no,trans_date,created_at&order=created_at.desc&limit=${limit}`, null, env);
+      const recent = await env.DB.prepare(`
+        SELECT id, type, category, amount, description, room_no, trans_date, created_at 
+        FROM transactions WHERE user_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?
+      `).bind(decoded.id, limit).all();
       
       return jsonResponse(0, 'ok', recent.results || []);
     } catch (error) {
@@ -174,17 +336,28 @@ async function handleApiRequest(request, env, path) {
       const page_size = parseInt(url.searchParams.get('page_size') || '20');
       const offset = (page - 1) * page_size;
       
-      let query = `/rest/v1/transactions?user_id=eq.${decoded.id}&select=id,type,category,amount,description,room_no,trans_date,tag,created_at,updated_at&order=trans_date.desc,id.desc&limit=${page_size}&offset=${offset}`;
+      let query = `
+        SELECT id, type, category, amount, description, room_no, trans_date, tag, created_at, updated_at 
+        FROM transactions WHERE user_id = ? AND deleted = 0 ORDER BY trans_date DESC, id DESC LIMIT ? OFFSET ?
+      `;
+      let params = [decoded.id, page_size, offset];
       
       const type = url.searchParams.get('type');
-      if (type) query += `&type=eq.${type}`;
+      if (type) {
+        query = `
+          SELECT id, type, category, amount, description, room_no, trans_date, tag, created_at, updated_at 
+          FROM transactions WHERE user_id = ? AND type = ? AND deleted = 0 ORDER BY trans_date DESC, id DESC LIMIT ? OFFSET ?
+        `;
+        params = [decoded.id, type, page_size, offset];
+      }
       
-      const results = await supabaseRequest('GET', query, null, env);
-      const countResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=count(*)`, null, env);
+      const results = await env.DB.prepare(query).bind(...params).all();
+      const countResult = await env.DB.prepare('SELECT COUNT(*) as cnt FROM transactions WHERE user_id = ? AND deleted = 0')
+        .bind(decoded.id).first();
       
       return jsonResponse(0, 'ok', {
         items: results.results || [],
-        total: parseInt(countResult.results?.[0]?.count || 0),
+        total: parseInt(countResult.cnt || 0),
         page,
         page_size
       });
@@ -203,18 +376,10 @@ async function handleApiRequest(request, env, path) {
         return jsonResponse(400, '缺少必填字段');
       }
       
-      await supabaseRequest('POST', '/rest/v1/transactions', {
-        user_id: decoded.id,
-        type,
-        category,
-        amount,
-        description: description || '',
-        room_no: room_no || '',
-        trans_date,
-        tag: tag || '',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }, env);
+      await env.DB.prepare(`
+        INSERT INTO transactions(user_id, type, category, amount, description, room_no, trans_date, tag)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(decoded.id, type, category, amount, description || '', room_no || '', trans_date, tag || '').run();
       
       return jsonResponse(0, '创建成功');
     } catch (error) {
@@ -228,17 +393,24 @@ async function handleApiRequest(request, env, path) {
       const txId = path.match(/^\/api\/transactions\/(\d+)$/)[1];
       const body = await request.json();
       
-      const updateData = { updated_at: new Date().toISOString() };
-      if ('type' in body) updateData.type = body.type;
-      if ('category' in body) updateData.category = body.category;
-      if ('amount' in body) updateData.amount = body.amount;
-      if ('description' in body) updateData.description = body.description;
-      if ('room_no' in body) updateData.room_no = body.room_no;
-      if ('trans_date' in body) updateData.trans_date = body.trans_date;
-      if ('tag' in body) updateData.tag = body.tag;
+      const updateData = [];
+      const params = [];
+      if ('type' in body) { updateData.push('type = ?'); params.push(body.type); }
+      if ('category' in body) { updateData.push('category = ?'); params.push(body.category); }
+      if ('amount' in body) { updateData.push('amount = ?'); params.push(body.amount); }
+      if ('description' in body) { updateData.push('description = ?'); params.push(body.description); }
+      if ('room_no' in body) { updateData.push('room_no = ?'); params.push(body.room_no); }
+      if ('trans_date' in body) { updateData.push('trans_date = ?'); params.push(body.trans_date); }
+      if ('tag' in body) { updateData.push('tag = ?'); params.push(body.tag); }
       
-      await supabaseRequest('PATCH', `/rest/v1/transactions?id=eq.${txId}&user_id=eq.${decoded.id}`, updateData, env);
-
+      if (updateData.length === 0) {
+        return jsonResponse(400, '没有需要更新的字段');
+      }
+      
+      params.push(txId, decoded.id);
+      await env.DB.prepare(`UPDATE transactions SET ${updateData.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`)
+        .bind(...params).run();
+      
       return jsonResponse(0, '更新成功');
     } catch (error) {
       console.error('Update transaction error:', error);
@@ -249,7 +421,8 @@ async function handleApiRequest(request, env, path) {
   if (path.match(/^\/api\/transactions\/(\d+)$/) && method === 'DELETE') {
     try {
       const txId = path.match(/^\/api\/transactions\/(\d+)$/)[1];
-      await supabaseRequest('DELETE', `/rest/v1/transactions?id=eq.${txId}&user_id=eq.${decoded.id}`, null, env);
+      await env.DB.prepare('UPDATE transactions SET deleted = 1 WHERE id = ? AND user_id = ?')
+        .bind(txId, decoded.id).run();
       
       return jsonResponse(0, '删除成功');
     } catch (error) {
@@ -260,9 +433,10 @@ async function handleApiRequest(request, env, path) {
   
   if (path === '/api/transactions/categories' && method === 'GET') {
     try {
-      const categories = await supabaseRequest('GET', `/rest/v1/categories?user_id=eq.${decoded.id}&disabled=eq.false&select=id,type,name,is_system,sort&order=type,sort,id`, null, env);
+      const categories = await env.DB.prepare('SELECT id, type, name, is_system, sort FROM categories WHERE user_id = ? AND disabled = 0 ORDER BY type, sort, id')
+        .bind(decoded.id).all();
       
-      const grouped = { 收入: [], 支出: [] };
+      const grouped = { '收入': [], '支出': [] };
       for (const cat of categories.results || []) {
         if (grouped[cat.type]) {
           grouped[cat.type].push(cat);
@@ -278,12 +452,16 @@ async function handleApiRequest(request, env, path) {
   
   if (path === '/api/reminders' && method === 'GET') {
     try {
-      let query = `/rest/v1/reminders?user_id=eq.${decoded.id}&select=id,room_no,rent_amount,due_date,lease_end_date,status,remark,created_at,updated_at&order=status,created_at.desc`;
+      let query = 'SELECT id, room_no, rent_amount, due_date, lease_end_date, status, remark, created_at, updated_at FROM reminders WHERE user_id = ? AND deleted = 0 ORDER BY status, created_at DESC';
+      let params = [decoded.id];
       
       const status = url.searchParams.get('status');
-      if (status) query += `&status=eq.${status}`;
+      if (status) {
+        query = 'SELECT id, room_no, rent_amount, due_date, lease_end_date, status, remark, created_at, updated_at FROM reminders WHERE user_id = ? AND status = ? AND deleted = 0 ORDER BY status, created_at DESC';
+        params = [decoded.id, status];
+      }
       
-      const reminders = await supabaseRequest('GET', query, null, env);
+      const reminders = await env.DB.prepare(query).bind(...params).all();
       
       return jsonResponse(0, 'ok', reminders.results || []);
     } catch (error) {
@@ -301,17 +479,10 @@ async function handleApiRequest(request, env, path) {
         return jsonResponse(400, '缺少必填字段');
       }
       
-      await supabaseRequest('POST', '/rest/v1/reminders', {
-        user_id: decoded.id,
-        room_no,
-        rent_amount,
-        due_date,
-        lease_end_date: lease_end_date || null,
-        status: status || '未完成',
-        remark: remark || '',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }, env);
+      await env.DB.prepare(`
+        INSERT INTO reminders(user_id, room_no, rent_amount, due_date, lease_end_date, status, remark)
+        VALUES(?, ?, ?, ?, ?, ?, ?)
+      `).bind(decoded.id, room_no, rent_amount, due_date, lease_end_date || null, status || '未完成', remark || '').run();
       
       return jsonResponse(0, '创建成功');
     } catch (error) {
@@ -325,16 +496,23 @@ async function handleApiRequest(request, env, path) {
       const remId = path.match(/^\/api\/reminders\/(\d+)$/)[1];
       const body = await request.json();
       
-      const updateData = { updated_at: new Date().toISOString() };
-      if ('room_no' in body) updateData.room_no = body.room_no;
-      if ('rent_amount' in body) updateData.rent_amount = body.rent_amount;
-      if ('due_date' in body) updateData.due_date = body.due_date;
-      if ('lease_end_date' in body) updateData.lease_end_date = body.lease_end_date;
-      if ('status' in body) updateData.status = body.status;
-      if ('remark' in body) updateData.remark = body.remark;
+      const updateData = [];
+      const params = [];
+      if ('room_no' in body) { updateData.push('room_no = ?'); params.push(body.room_no); }
+      if ('rent_amount' in body) { updateData.push('rent_amount = ?'); params.push(body.rent_amount); }
+      if ('due_date' in body) { updateData.push('due_date = ?'); params.push(body.due_date); }
+      if ('lease_end_date' in body) { updateData.push('lease_end_date = ?'); params.push(body.lease_end_date || null); }
+      if ('status' in body) { updateData.push('status = ?'); params.push(body.status); }
+      if ('remark' in body) { updateData.push('remark = ?'); params.push(body.remark); }
       
-      await supabaseRequest('PATCH', `/rest/v1/reminders?id=eq.${remId}&user_id=eq.${decoded.id}`, updateData, env);
-
+      if (updateData.length === 0) {
+        return jsonResponse(400, '没有需要更新的字段');
+      }
+      
+      params.push(remId, decoded.id);
+      await env.DB.prepare(`UPDATE reminders SET ${updateData.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`)
+        .bind(...params).run();
+      
       return jsonResponse(0, '更新成功');
     } catch (error) {
       console.error('Update reminder error:', error);
@@ -345,7 +523,8 @@ async function handleApiRequest(request, env, path) {
   if (path.match(/^\/api\/reminders\/(\d+)$/) && method === 'DELETE') {
     try {
       const remId = path.match(/^\/api\/reminders\/(\d+)$/)[1];
-      await supabaseRequest('DELETE', `/rest/v1/reminders?id=eq.${remId}&user_id=eq.${decoded.id}`, null, env);
+      await env.DB.prepare('UPDATE reminders SET deleted = 1 WHERE id = ? AND user_id = ?')
+        .bind(remId, decoded.id).run();
       
       return jsonResponse(0, '删除成功');
     } catch (error) {
@@ -356,13 +535,15 @@ async function handleApiRequest(request, env, path) {
   
   if (path === '/api/stats/summary' && method === 'GET') {
     try {
-      const incomeResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.收入&select=sum(amount)`, null, env);
-      const expenseResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.支出&select=sum(amount)`, null, env);
+      const incomeResult = await env.DB.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = ? AND deleted = 0')
+        .bind(decoded.id, '收入').first();
+      const expenseResult = await env.DB.prepare('SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = ? AND deleted = 0')
+        .bind(decoded.id, '支出').first();
       
       return jsonResponse(0, 'ok', {
-        total_income: parseFloat(incomeResult.results?.[0]?.sum || 0),
-        total_expense: parseFloat(expenseResult.results?.[0]?.sum || 0),
-        balance: parseFloat((incomeResult.results?.[0]?.sum || 0) - (expenseResult.results?.[0]?.sum || 0))
+        total_income: parseFloat(incomeResult.total || 0),
+        total_expense: parseFloat(expenseResult.total || 0),
+        balance: parseFloat((incomeResult.total || 0) - (expenseResult.total || 0))
       });
     } catch (error) {
       console.error('Stats summary error:', error);
@@ -372,14 +553,19 @@ async function handleApiRequest(request, env, path) {
   
   if (path === '/api/stats/trend' && method === 'GET') {
     try {
-      const trend = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=trans_date,type,sum(amount)&group=trans_date,type&order=trans_date.asc`, null, env);
+      const trend = await env.DB.prepare(`
+        SELECT strftime('%Y-%m', trans_date) as month, type, COALESCE(SUM(amount), 0) as total 
+        FROM transactions WHERE user_id = ? AND deleted = 0 
+        AND trans_date >= date('now', '-11 months', 'start of month')
+        GROUP BY strftime('%Y-%m', trans_date), type ORDER BY month ASC
+      `).bind(decoded.id).all();
       
       const result = {};
       for (const row of trend.results || []) {
-        const date = row.trans_date;
+        const date = row.month;
         if (!result[date]) result[date] = { income: 0, expense: 0 };
-        if (row.type === '收入') result[date].income = parseFloat(row.sum || 0);
-        if (row.type === '支出') result[date].expense = parseFloat(row.sum || 0);
+        if (row.type === '收入') result[date].income = parseFloat(row.total || 0);
+        if (row.type === '支出') result[date].expense = parseFloat(row.total || 0);
       }
       
       return jsonResponse(0, 'ok', result);
@@ -391,59 +577,101 @@ async function handleApiRequest(request, env, path) {
   
   if (path === '/api/auth/me' && method === 'GET') {
     try {
-      const user = await supabaseRequest('GET', `/rest/v1/users?id=eq.${decoded.id}&select=id,account_no,nickname,role,is_active,created_at,last_login_at`, null, env);
+      const user = await env.DB.prepare('SELECT id, account_no, nickname, role, is_active, created_at, last_login_at FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1')
+        .bind(decoded.id).first();
       
-      if (!user.results || user.results.length === 0) {
+      if (!user) {
         return jsonResponse(401, '用户不存在');
       }
       
-      return jsonResponse(0, 'ok', user.results[0]);
+      return jsonResponse(0, 'ok', user);
     } catch (error) {
       console.error('Auth me error:', error);
       return jsonResponse(500, '服务器内部错误');
     }
   }
   
+  if (path === '/api/auth/change-password' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { old_password, new_password } = body;
+      
+      const user = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1')
+        .bind(decoded.id).first();
+      
+      if (!user) {
+        return jsonResponse(401, '用户不存在');
+      }
+      
+      const isValid = await verifyPassword(old_password, user.password_hash);
+      if (!isValid) {
+        return jsonResponse(400, '旧密码错误');
+      }
+      
+      const newHash = await generatePasswordHash(new_password);
+      await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(newHash, decoded.id).run();
+      
+      return jsonResponse(0, '密码修改成功');
+    } catch (error) {
+      console.error('Change password error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (path === '/api/auth/profile' && method === 'PUT') {
+    try {
+      const body = await request.json();
+      const { nickname, phone } = body;
+      
+      const updateData = [];
+      const params = [];
+      if ('nickname' in body) { updateData.push('nickname = ?'); params.push(nickname); }
+      if ('phone' in body) { updateData.push('phone = ?'); params.push(phone); }
+      
+      if (updateData.length === 0) {
+        return jsonResponse(400, '没有需要更新的字段');
+      }
+      
+      params.push(decoded.id);
+      await env.DB.prepare(`UPDATE users SET ${updateData.join(', ')} WHERE id = ?`).bind(...params).run();
+      
+      return jsonResponse(0, '更新成功');
+    } catch (error) {
+      console.error('Update profile error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (path === '/api/auth/delete-account' && method === 'POST') {
+    try {
+      const body = await request.json();
+      const { password } = body;
+      
+      const user = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1')
+        .bind(decoded.id).first();
+      
+      if (!user) {
+        return jsonResponse(401, '用户不存在');
+      }
+      
+      const isValid = await verifyPassword(password, user.password_hash);
+      if (!isValid) {
+        return jsonResponse(400, '密码错误');
+      }
+      
+      await env.DB.prepare('DELETE FROM transactions WHERE user_id = ?').bind(decoded.id).run();
+      await env.DB.prepare('DELETE FROM reminders WHERE user_id = ?').bind(decoded.id).run();
+      await env.DB.prepare('DELETE FROM categories WHERE user_id = ?').bind(decoded.id).run();
+      await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(decoded.id).run();
+      
+      return jsonResponse(0, '账号已删除');
+    } catch (error) {
+      console.error('Delete account error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
   return jsonResponse(404, 'API 不存在');
-}
-
-async function supabaseRequest(method, path, body = null, env) {
-  const supabaseUrl = env.SUPABASE_URL || '';
-  const supabaseKey = env.SUPABASE_KEY || '';
-  
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error('Supabase environment variables not configured');
-  }
-  
-  const url = `${supabaseUrl}${path}`;
-  const headers = {
-    'Content-Type': 'application/json',
-    'apikey': supabaseKey,
-    'Authorization': `Bearer ${supabaseKey}`
-  };
-  
-  const options = { method, headers };
-  if (body) options.body = JSON.stringify(body);
-  
-  const response = await fetch(url, options);
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(`Supabase API error: ${response.status} - ${JSON.stringify(error)}`);
-  }
-  
-  return response.json();
-}
-
-async function handleStaticRequest(request, path) {
-  const filePath = path === '/' ? '/index.html' : path;
-  
-  try {
-    const file = await fetch(`file:///workspace/frontend${filePath}`);
-    return file;
-  } catch {
-    return new Response('Not found', { status: 404 });
-  }
 }
 
 function jsonResponse(code, msg, data = null) {
@@ -464,28 +692,30 @@ function generateJwt(payload, env) {
   const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
   const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const payloadStr = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 }));
-  const signature = btoa(HMACSHA256(`${header}.${payloadStr}`, secret));
-  return `${header}.${payloadStr}.${signature}`;
+  return HMACSHA256(`${header}.${payloadStr}`, secret).then(signature => {
+    return `${header}.${payloadStr}.${btoa(signature)}`;
+  });
 }
 
 function verifyJwt(token, env) {
   try {
     const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
     const [header, payloadStr, signature] = token.split('.');
-    const expectedSignature = btoa(HMACSHA256(`${header}.${payloadStr}`, secret));
     
-    if (signature !== expectedSignature) {
-      return null;
-    }
-    
-    const payload = JSON.parse(atob(payloadStr));
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-      return null;
-    }
-    
-    return payload;
+    return HMACSHA256(`${header}.${payloadStr}`, secret).then(expectedSignature => {
+      if (signature !== btoa(expectedSignature)) {
+        return null;
+      }
+      
+      const payload = JSON.parse(atob(payloadStr));
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
+        return null;
+      }
+      
+      return payload;
+    });
   } catch {
-    return null;
+    return Promise.resolve(null);
   }
 }
 
@@ -550,7 +780,7 @@ function generateCaptcha() {
   return { captcha_id, code, svg };
 }
 
-async function hashPassword(password) {
+async function generatePasswordHash(password) {
   const saltRounds = 10;
   const salt = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(Math.random().toString()));
   const saltStr = Array.from(new Uint8Array(salt)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 22);
