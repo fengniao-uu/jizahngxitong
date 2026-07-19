@@ -617,25 +617,18 @@ async function verifyJwtSimple(token, env) {
   }
 }
 
-function hmacSha256(data, key) {
+async function hmacSha256(data, key) {
   const encoder = new TextEncoder();
   const dataBytes = encoder.encode(data);
   const keyBytes = encoder.encode(key);
-  const cryptoKey = crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = crypto.subtle.sign('HMAC', cryptoKey, dataBytes);
-  const promise = new Promise((resolve) => {
-    signature.then(sig => {
-      const bytes = new Uint8Array(sig);
-      let result = '';
-      for (let i = 0; i < bytes.length; i++) {
-        result += String.fromCharCode(bytes[i]);
-      }
-      resolve(btoa(result).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, ''));
-    }).catch(() => {
-      resolve('');
-    });
-  });
-  return promise;
+  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, dataBytes);
+  const bytes = new Uint8Array(sig);
+  let result = '';
+  for (let i = 0; i < bytes.length; i++) {
+    result += String.fromCharCode(bytes[i]);
+  }
+  return btoa(result).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 async function generatePasswordHashSimple(password) {
