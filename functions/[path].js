@@ -26,22 +26,16 @@ async function handleApiRequest(request, env, path) {
         return jsonResponse(400, '账号或密码不能为空');
       }
       
-      const existing = await env.DB.prepare('SELECT id FROM users WHERE account_no = ?').bind(account_no).first();
+      const userResponse = await supabaseRequest('GET', `/rest/v1/users?account_no=eq.${account_no}`, null, env);
+      const users = userResponse.results || [];
       
-      if (!existing) {
-        const hash = await bcryptHash(password);
-        await env.DB.prepare(`
-          INSERT INTO users (account_no, password_hash, nickname, role, is_active)
-          VALUES (?, ?, '用户', 0, 1)
-        `).bind(account_no, hash).run();
-        
-        await seedCategories(env.DB, account_no);
+      if (users.length === 0) {
+        return jsonResponse(401, '账号或密码错误');
       }
       
-      const user = await env.DB.prepare('SELECT * FROM users WHERE account_no = ?').bind(account_no).first();
-      const storedHash = user.password_hash;
+      const user = users[0];
+      const isValid = await verifyPassword(password, user.password_hash);
       
-      const isValid = await bcryptCompare(password, storedHash);
       if (!isValid) {
         return jsonResponse(401, '账号或密码错误');
       }
@@ -50,9 +44,9 @@ async function handleApiRequest(request, env, path) {
         return jsonResponse(403, '账号已被禁用');
       }
       
-      await env.DB.prepare('UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?').bind(user.id).run();
+      await supabaseRequest('PATCH', `/rest/v1/users?id=eq.${user.id}`, { last_login_at: new Date().toISOString() }, env);
       
-      const token = generateJwt({ id: user.id, account_no: user.account_no, role: user.role });
+      const token = generateJwt({ id: user.id, account_no: user.account_no, role: user.role }, env);
       
       return jsonResponse(0, '登录成功', {
         token,
@@ -70,42 +64,62 @@ async function handleApiRequest(request, env, path) {
     }
   }
   
-  if (path === '/api/dashboard/summary' && method === 'GET') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
+  if (path === '/api/auth/register' && method === 'POST') {
     try {
-      const user = await env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(decoded.id).first();
-      if (!user) return jsonResponse(401, '用户不存在');
+      const body = await request.json();
+      const { account_no, password, nickname } = body;
       
+      if (!account_no || !password) {
+        return jsonResponse(400, '账号或密码不能为空');
+      }
+      
+      const existingResponse = await supabaseRequest('GET', `/rest/v1/users?account_no=eq.${account_no}`, null, env);
+      if (existingResponse.results && existingResponse.results.length > 0) {
+        return jsonResponse(409, '该账号已被占用');
+      }
+      
+      const hash = await hashPassword(password);
+      
+      await supabaseRequest('POST', '/rest/v1/users', {
+        account_no,
+        password_hash: hash,
+        nickname: nickname || '',
+        role: 0,
+        is_active: true,
+        created_at: new Date().toISOString()
+      }, env);
+      
+      return jsonResponse(0, '注册成功', { account_no });
+    } catch (error) {
+      console.error('Register error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  const token = getToken(request);
+  if (!token && path !== '/api/auth/login' && path !== '/api/auth/register' && path !== '/api/system/health') {
+    return jsonResponse(401, '未登录');
+  }
+  
+  const decoded = token ? verifyJwt(token, env) : null;
+  if (!decoded && path !== '/api/auth/login' && path !== '/api/auth/register' && path !== '/api/system/health') {
+    return jsonResponse(401, '登录已过期');
+  }
+  
+  if (path === '/api/dashboard/summary' && method === 'GET') {
+    try {
       const today = new Date().toISOString().split('T')[0];
       
-      const incomeResult = await env.DB.prepare(`
-        SELECT SUM(amount) as total FROM transactions 
-        WHERE user_id = ? AND type = '收入' AND tx_date >= ?
-      `).bind(user.id, today).first();
-      
-      const expenseResult = await env.DB.prepare(`
-        SELECT SUM(amount) as total FROM transactions 
-        WHERE user_id = ? AND type = '支出' AND tx_date >= ?
-      `).bind(user.id, today).first();
-      
-      const txCount = await env.DB.prepare(`
-        SELECT COUNT(*) as count FROM transactions WHERE user_id = ?
-      `).bind(user.id).first();
-      
-      const remCount = await env.DB.prepare(`
-        SELECT COUNT(*) as count FROM reminders WHERE user_id = ? AND status = 'pending'
-      `).bind(user.id).first();
+      const incomeResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.收入&trans_date=gte.${today}&select=sum(amount)`, null, env);
+      const expenseResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.支出&trans_date=gte.${today}&select=sum(amount)`, null, env);
+      const txCount = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=count(*)`, null, env);
+      const remCount = await supabaseRequest('GET', `/rest/v1/reminders?user_id=eq.${decoded.id}&status=eq.未完成&select=count(*)`, null, env);
       
       return jsonResponse(0, 'ok', {
-        today_income: parseFloat(incomeResult.total || 0),
-        today_expense: parseFloat(expenseResult.total || 0),
-        tx_count: parseInt(txCount.count || 0),
-        pending_reminders: parseInt(remCount.count || 0)
+        today_income: parseFloat(incomeResult.results?.[0]?.sum || 0),
+        today_expense: parseFloat(expenseResult.results?.[0]?.sum || 0),
+        tx_count: parseInt(txCount.results?.[0]?.count || 0),
+        pending_reminders: parseInt(remCount.results?.[0]?.count || 0)
       });
     } catch (error) {
       console.error('Summary error:', error);
@@ -114,18 +128,9 @@ async function handleApiRequest(request, env, path) {
   }
   
   if (path === '/api/dashboard/recent' && method === 'GET') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
     try {
       const limit = parseInt(url.searchParams.get('limit') || '5');
-      const recent = await env.DB.prepare(`
-        SELECT id, type, category, amount, description, room, tx_date, created_at 
-        FROM transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT ?
-      `).bind(decoded.id, limit).all();
+      const recent = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=id,type,category,amount,description,room_no,trans_date,created_at&order=created_at.desc&limit=${limit}`, null, env);
       
       return jsonResponse(0, 'ok', recent.results || []);
     } catch (error) {
@@ -135,29 +140,22 @@ async function handleApiRequest(request, env, path) {
   }
   
   if (path === '/api/transactions' && method === 'GET') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
     try {
       const page = parseInt(url.searchParams.get('page') || '1');
       const page_size = parseInt(url.searchParams.get('page_size') || '20');
       const offset = (page - 1) * page_size;
       
-      const results = await env.DB.prepare(`
-        SELECT id, type, category, amount, description, room, tx_date, created_at 
-        FROM transactions WHERE user_id = ? ORDER BY tx_date DESC, created_at DESC LIMIT ? OFFSET ?
-      `).bind(decoded.id, page_size, offset).all();
+      let query = `/rest/v1/transactions?user_id=eq.${decoded.id}&select=id,type,category,amount,description,room_no,trans_date,tag,created_at,updated_at&order=trans_date.desc,id.desc&limit=${page_size}&offset=${offset}`;
       
-      const countResult = await env.DB.prepare(`
-        SELECT COUNT(*) as count FROM transactions WHERE user_id = ?
-      `).bind(decoded.id).first();
+      const type = url.searchParams.get('type');
+      if (type) query += `&type=eq.${type}`;
+      
+      const results = await supabaseRequest('GET', query, null, env);
+      const countResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=count(*)`, null, env);
       
       return jsonResponse(0, 'ok', {
         items: results.results || [],
-        total: parseInt(countResult.count || 0),
+        total: parseInt(countResult.results?.[0]?.count || 0),
         page,
         page_size
       });
@@ -168,24 +166,26 @@ async function handleApiRequest(request, env, path) {
   }
   
   if (path === '/api/transactions' && method === 'POST') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
     try {
       const body = await request.json();
-      const { type, category, amount, description, room, tx_date } = body;
+      const { type, category, amount, description, room_no, trans_date, tag } = body;
       
-      if (!type || !category || !amount || !tx_date) {
+      if (!type || !category || !amount || !trans_date) {
         return jsonResponse(400, '缺少必填字段');
       }
       
-      await env.DB.prepare(`
-        INSERT INTO transactions (user_id, type, category, amount, description, room, tx_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(decoded.id, type, category, amount, description || '', room || '', tx_date).run();
+      await supabaseRequest('POST', '/rest/v1/transactions', {
+        user_id: decoded.id,
+        type,
+        category,
+        amount,
+        description: description || '',
+        room_no: room_no || '',
+        trans_date,
+        tag: tag || '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, env);
       
       return jsonResponse(0, '创建成功');
     } catch (error) {
@@ -194,17 +194,44 @@ async function handleApiRequest(request, env, path) {
     }
   }
   
-  if (path === '/api/transactions/categories' && method === 'GET') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
+  if (path.match(/^\/api\/transactions\/(\d+)$/) && method === 'PUT') {
     try {
-      const categories = await env.DB.prepare(`
-        SELECT id, type, name, sort_order FROM categories WHERE user_id = ? AND is_deleted = 0
-      `).bind(decoded.id).all();
+      const txId = path.match(/^\/api\/transactions\/(\d+)$/)[1];
+      const body = await request.json();
+      
+      const updateData = { updated_at: new Date().toISOString() };
+      if ('type' in body) updateData.type = body.type;
+      if ('category' in body) updateData.category = body.category;
+      if ('amount' in body) updateData.amount = body.amount;
+      if ('description' in body) updateData.description = body.description;
+      if ('room_no' in body) updateData.room_no = body.room_no;
+      if ('trans_date' in body) updateData.trans_date = body.trans_date;
+      if ('tag' in body) updateData.tag = body.tag;
+      
+      await supabaseRequest('PATCH', `/rest/v1/transactions?id=eq.${txId}&user_id=eq.${decoded.id}`, updateData, env);
+
+      return jsonResponse(0, '更新成功');
+    } catch (error) {
+      console.error('Update transaction error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (path.match(/^\/api\/transactions\/(\d+)$/) && method === 'DELETE') {
+    try {
+      const txId = path.match(/^\/api\/transactions\/(\d+)$/)[1];
+      await supabaseRequest('DELETE', `/rest/v1/transactions?id=eq.${txId}&user_id=eq.${decoded.id}`, null, env);
+      
+      return jsonResponse(0, '删除成功');
+    } catch (error) {
+      console.error('Delete transaction error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (path === '/api/transactions/categories' && method === 'GET') {
+    try {
+      const categories = await supabaseRequest('GET', `/rest/v1/categories?user_id=eq.${decoded.id}&disabled=eq.false&select=id,type,name,is_system,sort&order=type,sort,id`, null, env);
       
       const grouped = { 收入: [], 支出: [] };
       for (const cat of categories.results || []) {
@@ -221,17 +248,13 @@ async function handleApiRequest(request, env, path) {
   }
   
   if (path === '/api/reminders' && method === 'GET') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
     try {
-      const reminders = await env.DB.prepare(`
-        SELECT id, tenant_name, room, amount, due_day, last_paid_date, status, remark, created_at 
-        FROM reminders WHERE user_id = ? ORDER BY created_at DESC
-      `).bind(decoded.id).all();
+      let query = `/rest/v1/reminders?user_id=eq.${decoded.id}&select=id,room_no,rent_amount,due_date,lease_end_date,status,remark,created_at,updated_at&order=status,created_at.desc`;
+      
+      const status = url.searchParams.get('status');
+      if (status) query += `&status=eq.${status}`;
+      
+      const reminders = await supabaseRequest('GET', query, null, env);
       
       return jsonResponse(0, 'ok', reminders.results || []);
     } catch (error) {
@@ -241,24 +264,25 @@ async function handleApiRequest(request, env, path) {
   }
   
   if (path === '/api/reminders' && method === 'POST') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
     try {
       const body = await request.json();
-      const { tenant_name, room, amount, due_day, remark } = body;
+      const { room_no, rent_amount, due_date, lease_end_date, status, remark } = body;
       
-      if (!tenant_name || !amount) {
+      if (!room_no || !rent_amount || !due_date) {
         return jsonResponse(400, '缺少必填字段');
       }
       
-      await env.DB.prepare(`
-        INSERT INTO reminders (user_id, tenant_name, room, amount, due_day, remark)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).bind(decoded.id, tenant_name, room || '', amount, due_day || 1, remark || '').run();
+      await supabaseRequest('POST', '/rest/v1/reminders', {
+        user_id: decoded.id,
+        room_no,
+        rent_amount,
+        due_date,
+        lease_end_date: lease_end_date || null,
+        status: status || '未完成',
+        remark: remark || '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }, env);
       
       return jsonResponse(0, '创建成功');
     } catch (error) {
@@ -267,26 +291,49 @@ async function handleApiRequest(request, env, path) {
     }
   }
   
-  if (path === '/api/stats/summary' && method === 'GET') {
-    const token = getToken(request);
-    if (!token) return jsonResponse(401, '未登录');
-    
-    const decoded = verifyJwt(token);
-    if (!decoded) return jsonResponse(401, '登录已过期');
-    
+  if (path.match(/^\/api\/reminders\/(\d+)$/) && method === 'PUT') {
     try {
-      const incomeResult = await env.DB.prepare(`
-        SELECT SUM(amount) as total FROM transactions WHERE user_id = ? AND type = '收入'
-      `).bind(decoded.id).first();
+      const remId = path.match(/^\/api\/reminders\/(\d+)$/)[1];
+      const body = await request.json();
       
-      const expenseResult = await env.DB.prepare(`
-        SELECT SUM(amount) as total FROM transactions WHERE user_id = ? AND type = '支出'
-      `).bind(decoded.id).first();
+      const updateData = { updated_at: new Date().toISOString() };
+      if ('room_no' in body) updateData.room_no = body.room_no;
+      if ('rent_amount' in body) updateData.rent_amount = body.rent_amount;
+      if ('due_date' in body) updateData.due_date = body.due_date;
+      if ('lease_end_date' in body) updateData.lease_end_date = body.lease_end_date;
+      if ('status' in body) updateData.status = body.status;
+      if ('remark' in body) updateData.remark = body.remark;
+      
+      await supabaseRequest('PATCH', `/rest/v1/reminders?id=eq.${remId}&user_id=eq.${decoded.id}`, updateData, env);
+
+      return jsonResponse(0, '更新成功');
+    } catch (error) {
+      console.error('Update reminder error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (path.match(/^\/api\/reminders\/(\d+)$/) && method === 'DELETE') {
+    try {
+      const remId = path.match(/^\/api\/reminders\/(\d+)$/)[1];
+      await supabaseRequest('DELETE', `/rest/v1/reminders?id=eq.${remId}&user_id=eq.${decoded.id}`, null, env);
+      
+      return jsonResponse(0, '删除成功');
+    } catch (error) {
+      console.error('Delete reminder error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (path === '/api/stats/summary' && method === 'GET') {
+    try {
+      const incomeResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.收入&select=sum(amount)`, null, env);
+      const expenseResult = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&type=eq.支出&select=sum(amount)`, null, env);
       
       return jsonResponse(0, 'ok', {
-        total_income: parseFloat(incomeResult.total || 0),
-        total_expense: parseFloat(expenseResult.total || 0),
-        balance: parseFloat((incomeResult.total || 0) - (expenseResult.total || 0))
+        total_income: parseFloat(incomeResult.results?.[0]?.sum || 0),
+        total_expense: parseFloat(expenseResult.results?.[0]?.sum || 0),
+        balance: parseFloat((incomeResult.results?.[0]?.sum || 0) - (expenseResult.results?.[0]?.sum || 0))
       });
     } catch (error) {
       console.error('Stats summary error:', error);
@@ -294,7 +341,69 @@ async function handleApiRequest(request, env, path) {
     }
   }
   
+  if (path === '/api/stats/trend' && method === 'GET') {
+    try {
+      const trend = await supabaseRequest('GET', `/rest/v1/transactions?user_id=eq.${decoded.id}&select=trans_date,type,sum(amount)&group=trans_date,type&order=trans_date.asc`, null, env);
+      
+      const result = {};
+      for (const row of trend.results || []) {
+        const date = row.trans_date;
+        if (!result[date]) result[date] = { income: 0, expense: 0 };
+        if (row.type === '收入') result[date].income = parseFloat(row.sum || 0);
+        if (row.type === '支出') result[date].expense = parseFloat(row.sum || 0);
+      }
+      
+      return jsonResponse(0, 'ok', result);
+    } catch (error) {
+      console.error('Stats trend error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
+  if (path === '/api/auth/me' && method === 'GET') {
+    try {
+      const user = await supabaseRequest('GET', `/rest/v1/users?id=eq.${decoded.id}&select=id,account_no,nickname,role,is_active,created_at,last_login_at`, null, env);
+      
+      if (!user.results || user.results.length === 0) {
+        return jsonResponse(401, '用户不存在');
+      }
+      
+      return jsonResponse(0, 'ok', user.results[0]);
+    } catch (error) {
+      console.error('Auth me error:', error);
+      return jsonResponse(500, '服务器内部错误');
+    }
+  }
+  
   return jsonResponse(404, 'API 不存在');
+}
+
+async function supabaseRequest(method, path, body = null, env) {
+  const supabaseUrl = env.SUPABASE_URL || '';
+  const supabaseKey = env.SUPABASE_KEY || '';
+  
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Supabase environment variables not configured');
+  }
+  
+  const url = `${supabaseUrl}${path}`;
+  const headers = {
+    'Content-Type': 'application/json',
+    'apikey': supabaseKey,
+    'Authorization': `Bearer ${supabaseKey}`
+  };
+  
+  const options = { method, headers };
+  if (body) options.body = JSON.stringify(body);
+  
+  const response = await fetch(url, options);
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText }));
+    throw new Error(`Supabase API error: ${response.status} - ${JSON.stringify(error)}`);
+  }
+  
+  return response.json();
 }
 
 async function handleStaticRequest(request, path) {
@@ -322,17 +431,19 @@ function getToken(request) {
   return authHeader.substring(7);
 }
 
-function generateJwt(payload) {
+function generateJwt(payload, env) {
+  const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
   const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const payloadStr = btoa(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 }));
-  const signature = btoa(HMACSHA256(`${header}.${payloadStr}`, 'jizhang-system-secret-key-2024'));
+  const signature = btoa(HMACSHA256(`${header}.${payloadStr}`, secret));
   return `${header}.${payloadStr}.${signature}`;
 }
 
-function verifyJwt(token) {
+function verifyJwt(token, env) {
   try {
+    const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
     const [header, payloadStr, signature] = token.split('.');
-    const expectedSignature = btoa(HMACSHA256(`${header}.${payloadStr}`, 'jizhang-system-secret-key-2024'));
+    const expectedSignature = btoa(HMACSHA256(`${header}.${payloadStr}`, secret));
     
     if (signature !== expectedSignature) {
       return null;
@@ -365,7 +476,7 @@ function HMACSHA256(message, secret) {
     });
 }
 
-async function bcryptHash(password) {
+async function hashPassword(password) {
   const saltRounds = 10;
   const salt = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(Math.random().toString()));
   const saltStr = Array.from(new Uint8Array(salt)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 22);
@@ -380,7 +491,7 @@ async function bcryptHash(password) {
   return `$2b$${saltRounds}$${saltStr}${hashStr}`;
 }
 
-async function bcryptCompare(password, hash) {
+async function verifyPassword(password, hash) {
   const parts = hash.split('$');
   if (parts.length !== 4) return false;
   
@@ -395,22 +506,4 @@ async function bcryptCompare(password, hash) {
   
   const computedHashStr = Array.from(new Uint8Array(computedHash)).map(b => b.toString(16).padStart(2, '0')).join('');
   return hash === `$2b$${saltRounds}$${saltStr}${computedHashStr}`;
-}
-
-async function seedCategories(db, account_no) {
-  const user = await db.prepare('SELECT id FROM users WHERE account_no = ?').bind(account_no).first();
-  if (!user) return;
-  
-  const categories = [
-    ['收入', '房租'], ['收入', '工资'], ['收入', '奖金'], ['收入', '投资收益'], ['收入', '其他收入'],
-    ['支出', '招租费'], ['支出', '水电费'], ['支出', '物业费'], ['支出', '维修费'], ['支出', '其他支出']
-  ];
-  
-  for (let i = 0; i < categories.length; i++) {
-    const [type, name] = categories[i];
-    await db.prepare(`
-      INSERT INTO categories (user_id, type, name, sort_order)
-      VALUES (?, ?, ?, ?)
-    `).bind(user.id, type, name, i).run();
-  }
 }

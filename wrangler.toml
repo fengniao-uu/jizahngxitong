@@ -6,7 +6,7 @@ account_id = "ef3d5ed4216ab2dd7c64dd679ce0b2cd"
 command = ""
 publish = "frontend"
 
-[[d1_databases]]
-binding = "DB"
-database_name = "jizhanggaunlixitong"
-database_id = "39e7a7c7-f45f-4164-b127-5012551ce74e"
+[env]
+JWT_SECRET = ""
+SUPABASE_URL = "https://ezypdynyvilospzelsci.supabase.co"
+SUPABASE_KEY = ""
