@@ -7,7 +7,7 @@ export async function onRequest(context) {
     return handleApiRequest(request, env, path);
   }
   
-  return handleStaticRequest(request, path);
+  return null;
 }
 
 async function handleApiRequest(request, env, path) {

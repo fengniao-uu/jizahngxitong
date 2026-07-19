@@ -6,11 +6,13 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 
 import config  # noqa: E402  需要在 system_health 之前可用
 from config import CORS_ORIGINS, JWT_SECRET, APP_VERSION, LOG_DIR
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 from init_db import ensure_db_initialized
 
@@ -178,6 +180,21 @@ def public_announcements():
         r["priority"] = int(r.get("priority") or 0)
         safe.append(r)
     return jsonify({"code": 0, "msg": "ok", "data": {"list": safe, "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}})
+
+
+@app.route("/")
+def _serve_index():
+    return send_file(str(FRONTEND_DIR / "index.html"))
+
+
+@app.route("/<path:filename>")
+def _serve_static_file(filename):
+    target = (FRONTEND_DIR / filename).resolve()
+    if not str(target).startswith(str(FRONTEND_DIR.resolve())):
+        return jsonify({"code": 403, "msg": "禁止访问", "data": None}), 403
+    if target.is_file():
+        return send_file(str(target))
+    return jsonify({"code": 404, "msg": "资源不存在", "data": {"path": filename}}), 404
 
 
 def _now_trace_id() -> str:
