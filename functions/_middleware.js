@@ -587,7 +587,7 @@ function getToken(request) {
   return authHeader.substring(7);
 }
 
-function bytesToBase64(bytes) {
+function stdBase64Encode(bytes) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   let result = '';
   for (let i = 0; i < bytes.length; i += 3) {
@@ -604,12 +604,11 @@ function bytesToBase64(bytes) {
   } else if (bytes.length % 3 === 2) {
     result = result.slice(0, -1) + '=';
   }
-  return result.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return result;
 }
 
-function base64ToBytes(base64) {
+function stdBase64Decode(base64) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  base64 = base64.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4 !== 0) base64 += '=';
   const bytes = [];
   for (let i = 0; i < base64.length; i += 4) {
@@ -624,14 +623,22 @@ function base64ToBytes(base64) {
   return bytes;
 }
 
+function base64urlEncode(bytes) {
+  return stdBase64Encode(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64urlDecode(base64url) {
+  return stdBase64Decode(base64url.replace(/-/g, '+').replace(/_/g, '/'));
+}
+
 async function generateJwt(payload, env) {
   const secret = env.JWT_SECRET || 'jizhang-system-secret-key-2024';
   const encoder = new TextEncoder();
-  const header = bytesToBase64(encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
-  const payloadStr = bytesToBase64(encoder.encode(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 })));
+  const header = base64urlEncode(encoder.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const payloadStr = base64urlEncode(encoder.encode(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 })));
   const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`${header}.${payloadStr}`));
-  const signatureBase64 = bytesToBase64(new Uint8Array(signature));
+  const signatureBase64 = base64urlEncode(new Uint8Array(signature));
   return `${header}.${payloadStr}.${signatureBase64}`;
 }
 
@@ -643,12 +650,12 @@ async function verifyJwt(token, env) {
     if (parts.length !== 3) return null;
     const [header, payloadStr, signature] = parts;
     const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    const signatureBytes = base64ToBytes(signature);
+    const signatureBytes = base64urlDecode(signature);
     const isValid = await crypto.subtle.verify('HMAC', key, new Uint8Array(signatureBytes), encoder.encode(`${header}.${payloadStr}`));
     if (!isValid) {
       return null;
     }
-    const payloadBytes = base64ToBytes(payloadStr);
+    const payloadBytes = base64urlDecode(payloadStr);
     const payloadStrDecoded = new TextDecoder().decode(new Uint8Array(payloadBytes));
     const payload = JSON.parse(payloadStrDecoded);
     if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
@@ -665,7 +672,7 @@ async function generatePasswordHash(password) {
   const iterations = 260000;
   const saltBytes = new Uint8Array(16);
   crypto.getRandomValues(saltBytes);
-  const salt = btoa(String.fromCharCode(...saltBytes));
+  const salt = stdBase64Encode(saltBytes);
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
   const hashBytes = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations, hash: 'SHA-256' }, key, 256);
