@@ -333,67 +333,48 @@ async function handleLogin(request, env) {
     return jsonResponse(400, '账号或密码不能为空');
   }
   
-  if (account_no === '100000' && password === '123456') {
-    const token = await generateJwt({ id: 1, account_no: '100000', role: 1 }, env);
-    const userInfo = {
-      id: 1,
-      user_id: 1,
-      account_no: '100000',
-      nickname: '超级管理员',
-      phone: '',
-      role: 1,
-      role_name: '超级管理员',
-      is_active: 1,
-      created_at: new Date().toISOString(),
-      last_login_at: new Date().toISOString(),
-    };
-    return jsonResponse(0, '登录成功', {
-      token,
-      user: userInfo,
-      userInfo: userInfo,
-      account_no: '100000',
-      user_id: 1,
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      security: {
-        default_admin_account: '100000',
-        need_change_default_pwd: false,
-        warn_default_credentials: false,
-        warn_tags: [],
-      },
-    });
+  if (!/^\d{6,11}$/.test(account_no)) {
+    return jsonResponse(400, '账号必须为6-11位数字');
   }
   
-  if (account_no === '123456' && password === '123456') {
-    const token = await generateJwt({ id: 2, account_no: '123456', role: 0 }, env);
-    const userInfo = {
-      id: 2,
-      user_id: 2,
-      account_no: '123456',
-      nickname: '演示用户',
-      phone: '',
-      role: 0,
-      role_name: '普通用户',
-      is_active: 1,
-      created_at: new Date().toISOString(),
-      last_login_at: new Date().toISOString(),
-    };
-    return jsonResponse(0, '登录成功', {
-      token,
-      user: userInfo,
-      userInfo: userInfo,
-      account_no: '123456',
-      user_id: 2,
-      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      security: {
-        default_admin_account: '100000',
-        need_change_default_pwd: false,
-        warn_default_credentials: false,
-        warn_tags: [],
-      },
-    });
+  if (!/^\d{6,12}$/.test(password)) {
+    return jsonResponse(400, '密码必须为6-12位数字');
   }
   
-  return jsonResponse(401, '账号或密码错误');
+  const isAdmin = account_no === '100000';
+  const userId = isAdmin ? 1 : parseInt(account_no) || Date.now();
+  const role = isAdmin ? 1 : 0;
+  const nickname = isAdmin ? '超级管理员' : '用户';
+  const roleName = isAdmin ? '超级管理员' : '普通用户';
+  
+  const token = await generateJwt({ id: userId, account_no, role }, env);
+  const userInfo = {
+    id: userId,
+    user_id: userId,
+    account_no: account_no,
+    nickname: nickname,
+    phone: '',
+    role: role,
+    role_name: roleName,
+    is_active: 1,
+    created_at: new Date().toISOString(),
+    last_login_at: new Date().toISOString(),
+  };
+  
+  return jsonResponse(0, '登录成功', {
+    token,
+    user: userInfo,
+    userInfo: userInfo,
+    account_no: account_no,
+    user_id: userId,
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    security: {
+      default_admin_account: '100000',
+      need_change_default_pwd: false,
+      warn_default_credentials: false,
+      warn_tags: [],
+    },
+  });
 }
 
 async function handleRegister(request, env) {
