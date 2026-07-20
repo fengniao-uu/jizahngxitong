@@ -669,6 +669,8 @@ function getToken(request) {
   return authHeader.substring(7);
 }
 
+const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
 function base64urlEncode(str) {
   const encoder = new TextEncoder();
   const bytes = encoder.encode(str);
@@ -677,10 +679,10 @@ function base64urlEncode(str) {
     const b1 = bytes[i];
     const b2 = bytes[i + 1] || 0;
     const b3 = bytes[i + 2] || 0;
-    result += String.fromCharCode(((b1 >> 2) & 63) + 65);
-    result += String.fromCharCode((((b1 & 3) << 4) | ((b2 >> 4) & 15)) + 65);
-    result += String.fromCharCode((((b2 & 15) << 2) | ((b3 >> 6) & 3)) + 65);
-    result += String.fromCharCode((b3 & 63) + 65);
+    result += BASE64_CHARS[(b1 >> 2) & 63];
+    result += BASE64_CHARS[((b1 & 3) << 4) | ((b2 >> 4) & 15)];
+    result += BASE64_CHARS[((b2 & 15) << 2) | ((b3 >> 6) & 3)];
+    result += BASE64_CHARS[b3 & 63];
   }
   if (bytes.length % 3 === 1) {
     result = result.slice(0, -2);
@@ -695,10 +697,10 @@ function base64urlDecode(str) {
   while (str.length % 4 !== 0) str += '=';
   const bytes = [];
   for (let i = 0; i < str.length; i += 4) {
-    const c1 = str.charCodeAt(i) - 65;
-    const c2 = str.charCodeAt(i + 1) - 65;
-    const c3 = str.charCodeAt(i + 2) - 65;
-    const c4 = str.charCodeAt(i + 3) - 65;
+    const c1 = BASE64_CHARS.indexOf(str.charAt(i));
+    const c2 = BASE64_CHARS.indexOf(str.charAt(i + 1));
+    const c3 = BASE64_CHARS.indexOf(str.charAt(i + 2));
+    const c4 = BASE64_CHARS.indexOf(str.charAt(i + 3));
     bytes.push((c1 << 2) | (c2 >> 4));
     if (c3 !== -1) bytes.push(((c2 & 15) << 4) | (c3 >> 2));
     if (c4 !== -1) bytes.push(((c3 & 3) << 6) | c4);
