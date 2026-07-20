@@ -32,6 +32,10 @@ async function handleApiRequest(request, env, path) {
     return await handleLogin(request, env);
   }
   
+  if (path === '/api/auth/register' && method === 'POST') {
+    return await handleRegister(request, env);
+  }
+  
   const token = getToken(request);
   if (!token) {
     return jsonResponse(401, '未登录');
@@ -390,6 +394,57 @@ async function handleLogin(request, env) {
   }
   
   return jsonResponse(401, '账号或密码错误');
+}
+
+async function handleRegister(request, env) {
+  const body = await request.json();
+  const { account_no, password, nickname } = body;
+  
+  if (!account_no || !password) {
+    return jsonResponse(400, '账号或密码不能为空');
+  }
+  
+  if (!/^\d{6,11}$/.test(account_no)) {
+    return jsonResponse(400, '账号必须为6-11位数字');
+  }
+  
+  if (!/^\d{6,12}$/.test(password)) {
+    return jsonResponse(400, '密码必须为6-12位数字');
+  }
+  
+  if (account_no === '100000' || account_no === '123456') {
+    return jsonResponse(400, '该账号已被注册');
+  }
+  
+  const userId = parseInt(account_no) || Date.now();
+  const token = await generateJwt({ id: userId, account_no, role: 0 }, env);
+  const userInfo = {
+    id: userId,
+    user_id: userId,
+    account_no: account_no,
+    nickname: nickname || '用户',
+    phone: '',
+    role: 0,
+    role_name: '普通用户',
+    is_active: 1,
+    created_at: new Date().toISOString(),
+    last_login_at: new Date().toISOString(),
+  };
+  
+  return jsonResponse(0, '注册成功', {
+    token,
+    user: userInfo,
+    userInfo: userInfo,
+    account_no: account_no,
+    user_id: userId,
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    security: {
+      default_admin_account: '100000',
+      need_change_default_pwd: false,
+      warn_default_credentials: false,
+      warn_tags: [],
+    },
+  });
 }
 
 function jsonResponse(code, msg, data = null) {
