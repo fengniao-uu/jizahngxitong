@@ -153,10 +153,6 @@ async function handleLogin(request, env) {
     return jsonResponse(400, '账号或密码不能为空');
   }
   
-  if (!env.DB) {
-    return jsonResponse(500, '数据库未配置');
-  }
-  
   await initDb(env);
   
   const user = await env.DB.prepare('SELECT * FROM users WHERE account_no = ? AND is_deleted = 0 LIMIT 1').bind(account_no).first();
@@ -188,10 +184,6 @@ async function handleRegister(request, env) {
   
   if (!account_no || !password) {
     return jsonResponse(400, '账号或密码不能为空');
-  }
-  
-  if (!env.DB) {
-    return jsonResponse(500, '数据库未配置');
   }
   
   await initDb(env);
@@ -528,7 +520,211 @@ async function handleAdminSessionLogs(request, env, decoded) {
   return jsonResponse(0, 'ok', { list: results.results || [], total: parseInt(countResult.cnt || 0), page, page_size });
 }
 
+function createMemoryDb() {
+  const tables = {
+    users: [],
+    categories: [],
+    transactions: [],
+    reminders: [],
+    announcements: [],
+    session_logs: []
+  };
+  const ids = { users: 1, categories: 1, transactions: 1, reminders: 1, announcements: 1, session_logs: 1 };
+  
+  return {
+    prepare: (sql) => {
+      let params = [];
+      return {
+        bind: (...args) => {
+          params = args;
+          return this;
+        },
+        first: async () => {
+          const results = await this.all();
+          return results.results && results.results.length > 0 ? results.results[0] : null;
+        },
+        all: async () => {
+          const match = sql.match(/SELECT\s+(.+?)\s+FROM\s+(\w+)/i);
+          if (!match) return { results: [] };
+          const fields = match[1];
+          const table = match[2];
+          let data = tables[table] || [];
+          
+          const whereMatch = sql.match(/WHERE\s+(.+)/i);
+          if (whereMatch) {
+            const whereClause = whereMatch[1];
+            data = data.filter(row => {
+              const bindings = {};
+              params.forEach((v, i) => { bindings[i] = v; });
+              
+              const conditions = whereClause.split(' AND ').map(c => c.trim());
+              return conditions.every(cond => {
+                if (cond.includes('=')) {
+                  const [left, right] = cond.split('=').map(s => s.trim());
+                  const leftVal = left === '?' ? params[0] : row[left];
+                  let rightVal = right === '?' ? params[1] : right;
+                  if (!isNaN(rightVal)) rightVal = parseFloat(rightVal);
+                  return String(leftVal) === String(rightVal);
+                }
+                if (cond.includes('LIKE')) {
+                  const [field, pattern] = cond.split('LIKE').map(s => s.trim());
+                  const f = field === '?' ? params[0] : field;
+                  const p = pattern === '?' ? params[1] : pattern.replace(/['"]/g, '');
+                  return String(row[f]).includes(p.replace(/%/g, ''));
+                }
+                if (cond.includes('>=')) {
+                  const [field, val] = cond.split('>=').map(s => s.trim());
+                  const v = val === '?' ? params.find((_, i) => !bindings[i]) : parseFloat(val);
+                  return row[field] >= v;
+                }
+                if (cond.includes('<=')) {
+                  const [field, val] = cond.split('<=').map(s => s.trim());
+                  const v = val === '?' ? params.find((_, i) => !bindings[i]) : parseFloat(val);
+                  return row[field] <= v;
+                }
+                return true;
+              });
+            });
+          }
+          
+          const limitMatch = sql.match(/LIMIT\s+(\d+)/i);
+          if (limitMatch) data = data.slice(0, parseInt(limitMatch[1]));
+          
+          const offsetMatch = sql.match(/OFFSET\s+(\d+)/i);
+          if (offsetMatch) data = data.slice(parseInt(offsetMatch[1]));
+          
+          const orderMatch = sql.match(/ORDER BY\s+(\w+)\s+(ASC|DESC)/i);
+          if (orderMatch) {
+            data.sort((a, b) => {
+              const field = orderMatch[1];
+              const dir = orderMatch[2] === 'DESC' ? -1 : 1;
+              return (a[field] > b[field] ? 1 : -1) * dir;
+            });
+          }
+          
+          if (fields.includes('*')) {
+            return { results: data };
+          } else if (fields.includes('COALESCE')) {
+            const coalesceMatch = fields.match(/COALESCE\(SUM\((\w+)\),\s*(\d+)\)/);
+            if (coalesceMatch) {
+              const sum = data.reduce((acc, r) => acc + (parseFloat(r[coalesceMatch[1]]) || 0), 0);
+              return { results: [{ total: sum }] };
+            }
+          } else if (fields.includes('COUNT')) {
+            return { results: [{ cnt: data.length }] };
+          } else if (fields.includes('SUM')) {
+            const sumMatch = fields.match(/SUM\((\w+)\)/);
+            if (sumMatch) {
+              const sum = data.reduce((acc, r) => acc + (parseFloat(r[sumMatch[1]]) || 0), 0);
+              return { results: [{ total: sum }] };
+            }
+          } else if (fields.includes('GROUP BY')) {
+            const groupMatch = fields.match(/GROUP BY\s+(\w+)/);
+            const groups = {};
+            data.forEach(row => {
+              const key = row[groupMatch[1]];
+              if (!groups[key]) groups[key] = { [groupMatch[1]]: key, total: 0 };
+              groups[key].total += parseFloat(row.amount || 0);
+            });
+            return { results: Object.values(groups) };
+          }
+          
+          return { results: data };
+        },
+        run: async () => {
+          if (sql.startsWith('INSERT')) {
+            const tableMatch = sql.match(/INTO\s+(\w+)/i);
+            const table = tableMatch[1];
+            const valuesMatch = sql.match(/VALUES\s*\(([^)]+)\)/);
+            if (valuesMatch) {
+              const placeholders = valuesMatch[1].split(',').map(s => s.trim());
+              const row = { id: ids[table]++ };
+              let pIdx = 0;
+              const columns = sql.match(/\(([^)]+)\)/);
+              if (columns) {
+                const colNames = columns[1].split(',').map(s => s.trim());
+                colNames.forEach(col => {
+                  row[col] = params[pIdx++];
+                });
+              } else {
+                placeholders.forEach(() => {
+                  row['col' + pIdx] = params[pIdx++];
+                });
+              }
+              if (!row.created_at) row.created_at = new Date().toISOString();
+              tables[table].push(row);
+            }
+          } else if (sql.startsWith('UPDATE')) {
+            const tableMatch = sql.match(/UPDATE\s+(\w+)/i);
+            const table = tableMatch[1];
+            const setMatch = sql.match(/SET\s+(.+?)\s+WHERE/i);
+            if (setMatch) {
+              const setParts = setMatch[1].split(',').map(s => s.trim());
+              const whereMatch = sql.match(/WHERE\s+(.+)/i);
+              let pIdx = 0;
+              tables[table].forEach(row => {
+                if (whereMatch) {
+                  const whereClause = whereMatch[1];
+                  const conditions = whereClause.split(' AND ').map(c => c.trim());
+                  const matches = conditions.every(cond => {
+                    if (cond.includes('=')) {
+                      const [left, right] = cond.split('=').map(s => s.trim());
+                      const leftVal = row[left];
+                      const rightVal = right === '?' ? params[pIdx++] : right;
+                      return String(leftVal) === String(rightVal);
+                    }
+                    return true;
+                  });
+                  if (!matches) return;
+                }
+                setParts.forEach(part => {
+                  if (part.includes('=')) {
+                    const [key, val] = part.split('=').map(s => s.trim());
+                    if (val === 'CURRENT_TIMESTAMP') {
+                      row[key] = new Date().toISOString();
+                    } else if (val === '?') {
+                      row[key] = params[pIdx++];
+                    } else {
+                      row[key] = val.replace(/['"]/g, '');
+                    }
+                  }
+                });
+              });
+            }
+          } else if (sql.startsWith('DELETE')) {
+            const tableMatch = sql.match(/FROM\s+(\w+)/i);
+            const table = tableMatch[1];
+            const whereMatch = sql.match(/WHERE\s+(.+)/i);
+            let pIdx = 0;
+            if (whereMatch) {
+              tables[table] = tables[table].filter(row => {
+                const whereClause = whereMatch[1];
+                const conditions = whereClause.split(' AND ').map(c => c.trim());
+                return !conditions.every(cond => {
+                  if (cond.includes('=')) {
+                    const [left, right] = cond.split('=').map(s => s.trim());
+                    const leftVal = row[left];
+                    const rightVal = right === '?' ? params[pIdx++] : right;
+                    return String(leftVal) === String(rightVal);
+                  }
+                  return true;
+                });
+              });
+            }
+          } else if (sql.startsWith('CREATE')) {
+          }
+          return {};
+        }
+      };
+    }
+  };
+}
+
 async function initDb(env) {
+  if (!env.DB) {
+    env.DB = createMemoryDb();
+  }
+  
   const db = env.DB;
   
   await db.prepare('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, account_no TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, last_login_at TEXT, is_deleted INTEGER NOT NULL DEFAULT 0, failed_attempts INTEGER NOT NULL DEFAULT 0, last_failed_at TEXT, locked_until TEXT, nickname TEXT NOT NULL DEFAULT "", phone TEXT NOT NULL DEFAULT "", is_active INTEGER NOT NULL DEFAULT 1, role INTEGER NOT NULL DEFAULT 0)').run();
