@@ -24,6 +24,10 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(0, 'ok', { status: 'running', hasDb: !!env.DB });
   }
   
+  if (path === '/api/system/announcements' && method === 'GET') {
+    return jsonResponse(0, 'ok', []);
+  }
+  
   if (path === '/api/auth/login' && method === 'POST') {
     return await handleLogin(request, env);
   }
@@ -38,8 +42,66 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(401, '登录已过期');
   }
   
+  const userInfo = {
+    id: decoded.id,
+    user_id: decoded.id,
+    account_no: decoded.account_no,
+    nickname: decoded.account_no === '100000' ? '超级管理员' : '用户',
+    phone: '',
+    role: decoded.role,
+    role_name: decoded.role === 1 ? '超级管理员' : '普通用户',
+    is_active: 1,
+    created_at: new Date().toISOString(),
+    last_login_at: new Date().toISOString(),
+  };
+  
+  if (path === '/api/auth/me' && method === 'GET') {
+    return jsonResponse(0, 'ok', userInfo);
+  }
+  
+  if (path === '/api/auth/logout' && method === 'POST') {
+    return jsonResponse(0, '退出成功');
+  }
+  
+  if (path === '/api/auth/change-password' && method === 'POST') {
+    return jsonResponse(0, '密码修改成功');
+  }
+  
+  if (path === '/api/auth/profile' && method === 'PUT') {
+    return jsonResponse(0, '更新成功', userInfo);
+  }
+  
   if (path === '/api/dashboard/summary' && method === 'GET') {
-    return jsonResponse(0, 'ok', { today_income: 0, today_expense: 0, tx_count: 0, pending_reminders: 0 });
+    return jsonResponse(0, '获取仪表盘汇总成功', {
+      cards: [
+        { amount: 0.0, compare_title: '环比上月', key: 'month_income', title: '本月收入', trend_pct: 0.0, unit: '元' },
+        { amount: 0.0, compare_title: '环比上月', key: 'month_expense', title: '本月支出', trend_pct: 0.0, unit: '元' },
+        { amount: 0.0, compare_title: '收入-支出', key: 'month_balance', title: '本月结余', trend_pct: 0.0, unit: '元' },
+        { amount: 0.0, compare_title: '本月结余占比', key: 'total_asset', title: '总资产', trend_pct: 0.0, unit: '元' },
+      ],
+      meta: {
+        last_month_expense: 0.0,
+        last_month_income: 0.0,
+        month_balance: 0.0,
+        month_expense: 0.0,
+        month_income: 0.0,
+        total_asset: 0.0,
+        total_expense: 0.0,
+        total_income: 0.0,
+        trend_expense_pct: 0.0,
+        trend_income_pct: 0.0,
+      },
+      quick_actions: [
+        { default_type: '收入', icon: 'plus-circle', key: 'add_income', route: '#/dashboard/bills', title: '添加收入' },
+        { default_type: '支出', icon: 'minus-circle', key: 'add_expense', route: '#/dashboard/bills', title: '添加支出' },
+        { icon: 'list', key: 'view_records', route: '#/dashboard/bills', title: '查看记录' },
+        { icon: 'bar-chart-2', key: 'analysis', route: '#/dashboard/stats', title: '统计分析' },
+        { icon: 'bell-plus', key: 'add_reminder', route: '#/dashboard/reminders', title: '新建提醒' },
+      ],
+      recent_transactions: [],
+      reminder_summary: { due_soon: 0, lease_end_soon: 0, overdue: 0, pending: 0, total: 0 },
+      urgent_reminders: [],
+    });
   }
   
   if (path === '/api/dashboard/recent' && method === 'GET') {
@@ -54,6 +116,11 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(0, '添加成功');
   }
   
+  if (path.startsWith('/api/transactions/') && method === 'GET') {
+    const id = path.split('/').pop();
+    return jsonResponse(0, 'ok', { id: parseInt(id), type: '收入', amount: 0, category: '房租', remark: '', created_at: new Date().toISOString() });
+  }
+  
   if (path.startsWith('/api/transactions/') && method === 'PUT') {
     return jsonResponse(0, '更新成功');
   }
@@ -62,8 +129,28 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(0, '删除成功');
   }
   
+  if (path === '/api/transactions/batch-delete' && method === 'POST') {
+    return jsonResponse(0, '批量删除成功');
+  }
+  
+  if (path === '/api/transactions/categories' && method === 'GET') {
+    return jsonResponse(0, 'ok', {
+      income: ['房租', '网费', '取暖费', '房租押金', '门禁卡押金', '违约金', '其他'],
+      expense: ['网费', '招租费', '配件', '工人费', '保洁费', '水电', '维修', '其他'],
+    });
+  }
+  
   if (path === '/api/categories' && method === 'GET') {
-    return jsonResponse(0, 'ok', [{ id: 1, name: '房租', type: '收入', is_system: 1, sort: 0, disabled: 0 }, { id: 2, name: '网费', type: '收入', is_system: 1, sort: 1, disabled: 0 }, { id: 3, name: '取暖费', type: '收入', is_system: 1, sort: 2, disabled: 0 }, { id: 4, name: '其他', type: '收入', is_system: 1, sort: 3, disabled: 0 }, { id: 5, name: '网费', type: '支出', is_system: 1, sort: 0, disabled: 0 }, { id: 6, name: '招租费', type: '支出', is_system: 1, sort: 1, disabled: 0 }, { id: 7, name: '维修', type: '支出', is_system: 1, sort: 2, disabled: 0 }, { id: 8, name: '其他', type: '支出', is_system: 1, sort: 3, disabled: 0 }]);
+    return jsonResponse(0, 'ok', [
+      { id: 1, name: '房租', type: '收入', is_system: 1, sort: 0, disabled: 0 },
+      { id: 2, name: '网费', type: '收入', is_system: 1, sort: 1, disabled: 0 },
+      { id: 3, name: '取暖费', type: '收入', is_system: 1, sort: 2, disabled: 0 },
+      { id: 4, name: '其他', type: '收入', is_system: 1, sort: 3, disabled: 0 },
+      { id: 5, name: '网费', type: '支出', is_system: 1, sort: 0, disabled: 0 },
+      { id: 6, name: '招租费', type: '支出', is_system: 1, sort: 1, disabled: 0 },
+      { id: 7, name: '维修', type: '支出', is_system: 1, sort: 2, disabled: 0 },
+      { id: 8, name: '其他', type: '支出', is_system: 1, sort: 3, disabled: 0 },
+    ]);
   }
   
   if (path === '/api/categories' && method === 'POST') {
@@ -86,6 +173,11 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(0, '添加成功');
   }
   
+  if (path.startsWith('/api/reminders/') && method === 'GET') {
+    const id = path.split('/').pop();
+    return jsonResponse(0, 'ok', { id: parseInt(id), tenant_name: '', phone: '', rent_amount: 0, due_date: new Date().toISOString(), status: '未完成', remark: '', created_at: new Date().toISOString() });
+  }
+  
   if (path.startsWith('/api/reminders/') && method === 'PUT') {
     return jsonResponse(0, '更新成功');
   }
@@ -94,52 +186,91 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(0, '删除成功');
   }
   
-  if (path === '/api/stats/income-expense' && method === 'GET') {
-    return jsonResponse(0, 'ok', { income: 0, expense: 0 });
+  if (path === '/api/reminders/batch-delete' && method === 'POST') {
+    return jsonResponse(0, '批量删除成功');
   }
   
-  if (path === '/api/stats/category-summary' && method === 'GET') {
-    return jsonResponse(0, 'ok', []);
+  if (path.startsWith('/api/reminders/') && path.endsWith('/renew') && method === 'POST') {
+    return jsonResponse(0, '续租成功');
   }
   
-  if (path === '/api/stats/monthly-trend' && method === 'GET') {
-    const months = parseInt(new URL(request.url).searchParams.get('months') || '12');
-    const trend = [];
+  if (path === '/api/stats/summary' && method === 'GET') {
+    return jsonResponse(0, 'ok', {
+      today_income: 0,
+      today_expense: 0,
+      month_income: 0,
+      month_expense: 0,
+      total_income: 0,
+      total_expense: 0,
+    });
+  }
+  
+  if (path === '/api/stats/trend' && method === 'GET') {
     const today = new Date();
-    for (let i = months - 1; i >= 0; i--) {
+    const months = [];
+    for (let i = 11; i >= 0; i--) {
       const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      trend.push({ month: d.toISOString().slice(0, 7), income: 0, expense: 0 });
+      months.push({
+        month: d.toISOString().slice(0, 7),
+        income: 0,
+        expense: 0,
+      });
     }
-    return jsonResponse(0, 'ok', trend);
+    return jsonResponse(0, 'ok', months);
   }
   
-  if (path === '/api/announcements' && method === 'GET') {
+  if (path === '/api/stats/pie' && method === 'GET') {
     return jsonResponse(0, 'ok', []);
   }
   
-  if (path === '/api/announcements' && method === 'POST') {
-    if (decoded.role !== 1) return jsonResponse(403, '无权限');
-    return jsonResponse(0, '添加成功');
+  if (path === '/api/stats/compare' && method === 'GET') {
+    return jsonResponse(0, 'ok', []);
   }
   
-  if (path.startsWith('/api/announcements/') && method === 'PUT') {
+  if (path === '/api/admin/overview' && method === 'GET') {
     if (decoded.role !== 1) return jsonResponse(403, '无权限');
-    return jsonResponse(0, '更新成功');
+    return jsonResponse(0, 'ok', {
+      total_users: 1,
+      active_users: 1,
+      locked_users: 0,
+      today_logins: 0,
+      total_logins: 0,
+    });
   }
   
-  if (path.startsWith('/api/announcements/') && method === 'DELETE') {
+  if (path === '/api/admin/me' && method === 'GET') {
     if (decoded.role !== 1) return jsonResponse(403, '无权限');
-    return jsonResponse(0, '删除成功');
+    return jsonResponse(0, 'ok', userInfo);
   }
   
   if (path === '/api/admin/users' && method === 'GET') {
     if (decoded.role !== 1) return jsonResponse(403, '无权限');
-    return jsonResponse(0, 'ok', { list: [{ id: 1, account_no: '100000', nickname: '超级管理员', phone: '', role: 1, is_active: 1, created_at: new Date().toISOString(), last_login_at: new Date().toISOString() }], total: 1, page: 1, page_size: 20 });
+    return jsonResponse(0, 'ok', {
+      list: [userInfo],
+      total: 1,
+      page: 1,
+      page_size: 20,
+    });
   }
   
-  if (path.startsWith('/api/admin/users/') && method === 'PUT') {
+  if (path.startsWith('/api/admin/users/') && method === 'GET') {
     if (decoded.role !== 1) return jsonResponse(403, '无权限');
-    return jsonResponse(0, '更新成功');
+    return jsonResponse(0, 'ok', userInfo);
+  }
+  
+  if (path.startsWith('/api/admin/users/') && path.endsWith('/unlock') && method === 'POST') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '解锁成功');
+  }
+  
+  if (path.startsWith('/api/admin/users/') && path.endsWith('/reset-password') && method === 'POST') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '密码重置成功');
+  }
+  
+  if (path.startsWith('/api/admin/users/') && path.endsWith('/role') && method === 'POST') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '角色设置成功');
   }
   
   if (path.startsWith('/api/admin/users/') && method === 'DELETE') {
@@ -147,9 +278,44 @@ async function handleApiRequest(request, env, path) {
     return jsonResponse(0, '删除成功');
   }
   
-  if (path === '/api/admin/session-logs' && method === 'GET') {
+  if (path.startsWith('/api/admin/users/') && path.endsWith('/toggle-active') && method === 'POST') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '状态更新成功');
+  }
+  
+  if (path === '/api/admin/verify-self-pwd' && method === 'POST') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '验证成功');
+  }
+  
+  if (path === '/api/admin/logs' && method === 'GET') {
     if (decoded.role !== 1) return jsonResponse(403, '无权限');
     return jsonResponse(0, 'ok', { list: [], total: 0, page: 1, page_size: 20 });
+  }
+  
+  if (path === '/api/admin/announcements' && method === 'GET') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, 'ok', []);
+  }
+  
+  if (path === '/api/admin/announcements' && method === 'POST') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '添加成功');
+  }
+  
+  if (path.startsWith('/api/admin/announcements/') && method === 'PUT') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '更新成功');
+  }
+  
+  if (path.startsWith('/api/admin/announcements/') && method === 'DELETE') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '删除成功');
+  }
+  
+  if (path.startsWith('/api/admin/announcements/') && path.endsWith('/pin') && method === 'POST') {
+    if (decoded.role !== 1) return jsonResponse(403, '无权限');
+    return jsonResponse(0, '置顶成功');
   }
   
   return jsonResponse(404, '接口不存在');
@@ -165,7 +331,62 @@ async function handleLogin(request, env) {
   
   if (account_no === '100000' && password === '123456') {
     const token = await generateJwt({ id: 1, account_no: '100000', role: 1 }, env);
-    return jsonResponse(0, '登录成功', { token, user: { id: 1, account_no: '100000', nickname: '超级管理员', role: 1, is_active: 1 } });
+    const userInfo = {
+      id: 1,
+      user_id: 1,
+      account_no: '100000',
+      nickname: '超级管理员',
+      phone: '',
+      role: 1,
+      role_name: '超级管理员',
+      is_active: 1,
+      created_at: new Date().toISOString(),
+      last_login_at: new Date().toISOString(),
+    };
+    return jsonResponse(0, '登录成功', {
+      token,
+      user: userInfo,
+      userInfo: userInfo,
+      account_no: '100000',
+      user_id: 1,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      security: {
+        default_admin_account: '100000',
+        need_change_default_pwd: false,
+        warn_default_credentials: false,
+        warn_tags: [],
+      },
+    });
+  }
+  
+  if (account_no === '123456' && password === '123456') {
+    const token = await generateJwt({ id: 2, account_no: '123456', role: 0 }, env);
+    const userInfo = {
+      id: 2,
+      user_id: 2,
+      account_no: '123456',
+      nickname: '演示用户',
+      phone: '',
+      role: 0,
+      role_name: '普通用户',
+      is_active: 1,
+      created_at: new Date().toISOString(),
+      last_login_at: new Date().toISOString(),
+    };
+    return jsonResponse(0, '登录成功', {
+      token,
+      user: userInfo,
+      userInfo: userInfo,
+      account_no: '123456',
+      user_id: 2,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      security: {
+        default_admin_account: '100000',
+        need_change_default_pwd: false,
+        warn_default_credentials: false,
+        warn_tags: [],
+      },
+    });
   }
   
   return jsonResponse(401, '账号或密码错误');
@@ -173,7 +394,12 @@ async function handleLogin(request, env) {
 
 function jsonResponse(code, msg, data = null) {
   return new Response(JSON.stringify({ code, msg, data }), {
-    headers: { 'Content-Type': 'application/json; charset=utf-8' }
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
   });
 }
 
